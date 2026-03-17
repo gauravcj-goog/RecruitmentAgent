@@ -77,6 +77,7 @@ runner = Runner(
 @app.post("/upload/{session_uuid}")
 async def upload_file(session_uuid: str, file: UploadFile = File(...)):
     """Uploads a file to GCS with a session-specific UUID prefix."""
+    logger.info(f"Received upload request for file: {file.filename}, type: {file.content_type}, session: {session_uuid}")
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
     bucket_name = f"{project_id}-recruitment-uploads"
     

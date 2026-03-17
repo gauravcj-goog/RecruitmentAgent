@@ -36,7 +36,7 @@ The Cymbal Bank Recruitment Assistant is a comprehensive AI solution for moderni
 
 Access the live recruitment portal and backend services at the following URLs:
 
--   **Candidate Portal (Frontend)**: [https://recruitment-agent-ui-787798151876.asia-south1.run.app](https://recruitment-agent-ui-787708151876.asia-south1.run.app)
+-   **Candidate Portal (Frontend)**: [https://recruitment-agent-frontend-787798151876.asia-south1.run.app](https://recruitment-agent-frontend-787798151876.asia-south1.run.app)
 -   **API Backend**: [https://recruitment-agent-backend-787798151876.asia-south1.run.app](https://recruitment-agent-backend-787798151876.asia-south1.run.app)
 -   **GCS Document Storage**: `gs://learn-361304-recruitment-uploads`
 
@@ -88,7 +88,7 @@ gcloud run deploy recruitment-agent-backend \
   --source . \
   --region asia-south1 \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,DEMO_AGENT_MODEL=gemini-live-2.5-flash-native-audio,GOOGLE_CLOUD_PROJECT=learn-361304,GOOGLE_CLOUD_LOCATION=us-central1,DATA_STORE_ID=recruitment-policies-ds,SEARCH_LOCATION=global
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,DEMO_AGENT_MODEL=gemini-live-2.5-flash-native-audio,GOOGLE_CLOUD_PROJECT=learn-361304,GOOGLE_CLOUD_LOCATION=us-central1,DATA_STORE_ID=recruitment-policies-ds,SEARCH_LOCATION=global,ALLOWED_ORIGINS="*"
 ```
 
 **Deploy the Frontend:**
@@ -96,7 +96,7 @@ gcloud run deploy recruitment-agent-backend \
 # Prepare the static bundle
 mkdir -p frontend/app && cp -r app/static frontend/app/static
 
-gcloud run deploy recruitment-agent-ui \
+gcloud run deploy recruitment-agent-frontend \
   --source ./frontend \
   --region asia-south1 \
   --allow-unauthenticated

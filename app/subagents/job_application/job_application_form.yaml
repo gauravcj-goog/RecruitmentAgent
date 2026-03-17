@@ -1,0 +1,37 @@
+jaf1_pre_offer_document:
+  personal_details:
+    full_name: "string"
+    email_id: "string"
+    date_of_birth: "date"
+    contact_number: "string"
+    gender: "string"
+    fathers_name: "string"
+    nationality: "string"
+    blood_group: "string"
+    different_name_on_pan: "boolean" # Do you have a different name on PAN?
+    pan_number: "string"
+    communication_address: "string"
+    permanent_address: "string"
+
+  educational_details:
+    graduation_details:
+      course: "string"
+      institute: "string"
+      university_board: "string"
+      course_start_date: "date"
+      course_end_date: "date"
+
+  additional_details:
+    relative_working_in_axis_bank: "boolean"
+    previously_worked_with_axis_bank: "boolean"
+    currently_working_past_year_via_vendor: "boolean"
+    vendor_outsourced_partner_name: "string" # Name of the Vendor/Outsourced partner
+    consent_bgv_partners: "boolean" # Unconditional consent for background verification
+    consent_credit_information: "boolean" # Consent to receive credit info from Experian
+    declaration_no_monetary_contribution: "boolean" # Declaration regarding no money/deposit paid
+    terms_and_conditions_accepted: "boolean"
+
+  uploaded_documents:
+    - document_name: "string" # e.g., Resume_v1.pdf
+      type: "string" # e.g., Resume, Salary slip, etc.
+      document_link: "string" # e.g., gs://bucket/filename.pdf

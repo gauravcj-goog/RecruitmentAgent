@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import mimetypes
 from google.cloud import storage
 from google import genai
 from google.genai import types
@@ -9,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
     """
-    Reads a document from GCS and extracts fields for the Job Application Form (JAF).
+    Reads a document (PDF or Image) from GCS and extracts fields for the Job Application Form (JAF).
     
     Args:
-        gcs_uri: The GCS path to the document (e.g., gs://bucket/file.pdf).
+        gcs_uri: The GCS path to the document (e.g., gs://bucket/file.pdf or .jpg).
         candidate_id: To track who this is for.
         
     Returns:
@@ -25,6 +26,25 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
     
     if not gcs_uri.startswith("gs://"):
         return {"error": "Invalid GCS URI"}
+
+    # Identify Mime Type
+    mime_type, _ = mimetypes.guess_type(gcs_uri)
+    if not mime_type:
+        # Fallback to standard types based on extension or octet-stream
+        if gcs_uri.lower().endswith(".pdf"):
+            mime_type = "application/pdf"
+        elif gcs_uri.lower().endswith((".jpg", ".jpeg")):
+            mime_type = "image/jpeg"
+        elif gcs_uri.lower().endswith(".png"):
+            mime_type = "image/png"
+        elif gcs_uri.lower().endswith(".docx"):
+            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif gcs_uri.lower().endswith(".doc"):
+            mime_type = "application/msword"
+        else:
+            mime_type = "application/pdf" # Default fallback
+            
+    logger.info(f"Processing document {gcs_uri} with mime_type {mime_type}")
 
     try:
         # Initialize GenAI Client
@@ -41,7 +61,7 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
 
         prompt = f"""
         You are an expert HR data extractor for Cymbal Bank.
-        Analyze the attached document and extract all relevant information to populate the Job Application Form (JAF).
+        Analyze the attached document (which could be a PDF, a Word document, or a photo) and extract all relevant information to populate the Job Application Form (JAF).
         
         The target structure is defined in this YAML schema:
         {schema_text}
@@ -51,15 +71,15 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
         2. If a field is not found, do NOT invent data; omit it.
         3. For boolean fields, infer based on the document content if possible.
         4. Return ONLY valid JSON.
-        5. **CRITICAL**: If the document is a PAN Card or contains a PAN Number, ENSURE the 'pan_number' field in 'personal_details' is populated.
-        6. Focus especially on 'personal_details' and 'educational_details'.
+        5. **SEQUENTIAL EDUCATION EXTRACTION**: Carefully identify EVERY educational qualification mentioned (e.g., 10th, 12th, Bachelor's, Master's, Certifications).
+        6. **STRUCTURE**: Store multiple qualifications in the `educational_details.education_history` list sequentially.
+        7. **CRITICAL**: If the document is a PAN Card or contains a PAN Number, ENSURE the 'pan_number' field in 'personal_details' is populated.
+        8. Focus especially on 'personal_details' and 'educational_details'.
         """
 
         # Prepare the file part for Gemini
-        # We can pass GCS URI directly to Gemini if using Vertex AI and the URI is accessible
-        # For simplicity across both AI Studio and Vertex, we'll pass the GCS part
         parts = [
-            types.Part.from_uri(file_uri=gcs_uri, mime_type="application/pdf"),
+            types.Part.from_uri(file_uri=gcs_uri, mime_type=mime_type),
             types.Part.from_text(text=prompt)
         ]
 

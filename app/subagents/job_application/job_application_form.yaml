@@ -14,12 +14,12 @@ jaf1_pre_offer_document:
     permanent_address: "string"
 
   educational_details:
-    graduation_details:
-      course: "string"
-      institute: "string"
-      university_board: "string"
-      course_start_date: "date"
-      course_end_date: "date"
+    education_history:
+      - course: "string"
+        institute: "string"
+        university_board: "string"
+        course_start_date: "date"
+        course_end_date: "date"
 
   additional_details:
     relative_working_in_axis_bank: "boolean"

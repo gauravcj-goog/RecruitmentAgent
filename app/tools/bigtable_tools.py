@@ -116,6 +116,9 @@ def update_candidate_data(candidate_id: str, data_json: str) -> str:
         existing_profile_json = get_candidate_profile(candidate_id)
         existing_profile = json.loads(existing_profile_json).get("jaf1_pre_offer_document", {})
 
+        logger.info(f"Existing profile for {candidate_id}: {json.dumps(existing_profile)}")
+        logger.info(f"New update for {candidate_id}: {json.dumps(new_jaf)}")
+
         # Helper to convert to string storage
         def to_val(v):
             if isinstance(v, bool): return str(v).lower()
@@ -133,44 +136,70 @@ def update_candidate_data(candidate_id: str, data_json: str) -> str:
             if k in ADDITIONAL_FIELDS:
                 row.set_cell(family_id, k.encode("utf-8"), to_val(v).encode("utf-8"))
         
-        # 4. Update Educational Details (JSON structure - MUST MERGE)
+        # 4. Update Educational Details (List-based additive merge)
         new_ed = new_jaf.get("educational_details")
+        existing_ed = existing_profile.get("educational_details", {})
+        if not isinstance(existing_ed, dict): existing_ed = {}
+        
+        # If new_ed is provided, merge it. If not, we don't touch educational_details column (BigTable persistence)
         if new_ed:
-            existing_ed = existing_profile.get("educational_details", {})
-            if not isinstance(existing_ed, dict): existing_ed = {}
-            if not isinstance(new_ed, dict): new_ed = {}
+            existing_hist = existing_ed.get("education_history", [])
+            if not isinstance(existing_hist, list): existing_hist = []
             
-            # Deep merge graduation_details if present in both
-            if "graduation_details" in new_ed and "graduation_details" in existing_ed:
-                if isinstance(new_ed["graduation_details"], dict) and isinstance(existing_ed["graduation_details"], dict):
-                    existing_ed["graduation_details"].update(new_ed["graduation_details"])
-                    # Carry over other top-level keys from new_ed
-                    for k, v in new_ed.items():
-                        if k != "graduation_details":
-                            existing_ed[k] = v
-                    final_ed = existing_ed
-                else:
-                    existing_ed.update(new_ed)
-                    final_ed = existing_ed
-            else:
-                existing_ed.update(new_ed)
-                final_ed = existing_ed
+            new_hist = new_ed.get("education_history", [])
+            if not isinstance(new_hist, list): new_hist = []
             
+            # Use granular key for deduplication: course|institute|start_date
+            def get_edu_key(d):
+                if not isinstance(d, dict): return "invalid"
+                return f"{d.get('course', 'N/A').lower()}|{d.get('institute', 'N/A').lower()}|{d.get('course_start_date', 'N/A')}"
+
+            # Start with EXISTING items
+            merged_hist_dict = {get_edu_key(d): d for d in existing_hist if isinstance(d, dict)}
+            # Update/Append with NEW items
+            for d in new_hist:
+                if isinstance(d, dict) and d.get("course") and d.get("institute"):
+                    # Merge existing entry if it's the same degree, filling gaps
+                    key = get_edu_key(d)
+                    if key in merged_hist_dict:
+                        merged_hist_dict[key].update({k: v for k, v in d.items() if v})
+                    else:
+                        merged_hist_dict[key] = d
+            
+            final_ed = {"education_history": list(merged_hist_dict.values())}
+            
+            # Deep merge other top-level keys within educational_details (like graduation_details)
+            # Carry over EVERYTHING from existing_ed that isn't overridden
+            for k, v in existing_ed.items():
+                if k != "education_history" and k not in final_ed:
+                    final_ed[k] = v
+            # Now incorporate new top-level ed fields
+            for k, v in new_ed.items():
+                if k != "education_history":
+                    final_ed[k] = v
+            
+            logger.info(f"Merged educational_details for {candidate_id}: {json.dumps(final_ed)}")
             row.set_cell(family_id, b"educational_details", json.dumps(final_ed).encode("utf-8"))
         
-        # 5. Update Uploaded Documents (JSON list - ALWAYS MERGE by doc type)
+        # 5. Update Uploaded Documents (JSON list - MERGE by document_link)
         new_docs = new_jaf.get("uploaded_documents")
         if new_docs:
             existing_docs = existing_profile.get("uploaded_documents", [])
             if not isinstance(existing_docs, list): existing_docs = []
             
-            merged_docs = {d.get("type"): d for d in existing_docs if isinstance(d, dict) and d.get("type")}
+            # Use URI as unique key
+            merged_docs = {d.get("document_link"): d for d in existing_docs if isinstance(d, dict) and d.get("document_link")}
             if isinstance(new_docs, list):
                 for d in new_docs:
-                    if isinstance(d, dict) and d.get("type"):
-                        merged_docs[d["type"]] = d
+                    if isinstance(d, dict) and d.get("document_link"):
+                        if d["document_link"] in merged_docs:
+                            merged_docs[d["document_link"]].update({k: v for k, v in d.items() if v})
+                        else:
+                            merged_docs[d["document_link"]] = d
             
-            row.set_cell(family_id, b"uploaded_documents", json.dumps(list(merged_docs.values())).encode("utf-8"))
+            final_docs = list(merged_docs.values())
+            logger.info(f"Merged uploaded_documents for {candidate_id}: {json.dumps(final_docs)}")
+            row.set_cell(family_id, b"uploaded_documents", json.dumps(final_docs).encode("utf-8"))
 
         row.commit()
         return f"Successfully updated structured records for {candidate_id}."
@@ -181,17 +210,18 @@ def update_candidate_data(candidate_id: str, data_json: str) -> str:
 def store_document_link(candidate_id: str, document_name: str, doc_type: str, gcs_uri: str) -> str:
     """
     Saves a GCS document link to the candidate records in BigTable.
+    Allows multiple files for the same type by appending new URIs.
     """
     profile_json = get_candidate_profile(candidate_id)
     profile = json.loads(profile_json)
     jaf = profile.get("jaf1_pre_offer_document", {})
     docs = jaf.get("uploaded_documents", [])
+    if not isinstance(docs, list): docs = []
     
-    # Check if document already exists
+    # Check if this exact URI already exists
     exists = False
-    for i, doc in enumerate(docs):
-        if doc.get("type") == doc_type:
-            docs[i] = {"document_name": document_name, "type": doc_type, "document_link": gcs_uri}
+    for doc in docs:
+        if doc.get("document_link") == gcs_uri:
             exists = True
             break
             

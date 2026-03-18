@@ -10,10 +10,11 @@ The Cymbal Bank Recruitment Assistant is a comprehensive AI solution for moderni
 
 ### Core Capabilities
 -   **Intelligent Policy Search**: Real-time answers to employee and candidate queries (e.g., maternity leave, medical insurance) using **Vertex AI Search** indexed over official PDF policies.
--   **Automated Job Application**: A specialized sub-agent that guides candidates through the application process, capturing personal, educational, and professional details.
--   **Seamless Document Upload**: Integrated support for uploading mandatory documents (Resume, PAN Card, Salary Slips) directly through the chat interface.
--   **Persistence & Persistence**: Structured data is extracted and stored in **Google Cloud BigTable** for downstream HR processing.
--   **Multimodal Interaction**: Supports high-fidelity voice (Native Audio), text, and image/camera interactions.
+-   **Sequential Education Extraction**: Automatically extracts multiple educational qualifications (e.g., 10th, 12th, Bachelor's, Master's) from a single resume and stores them as an additive history.
+-   **Multi-Format Document Support**: Seamlessly processes **PDF, JPEG, PNG**, and **Microsoft Word (.docx, .doc)** documents for resume and identification extraction.
+-   **Robust Deep-Merge Persistence**: Implements sophisticated JSON merging in **Google Cloud BigTable**, ensuring that new document uploads (like a PAN card) never overwrite or lose previously captured resume data.
+-   **Real-time Candidate Profile**: A dedicated transparent UI tab that fetches and renders the candidate's full history, including downloaded document links and multiple qualification blocks.
+-   **Multimodal Interaction**: Supports high-fidelity voice (Native Audio), text, and image/camera interactions with the Gemini-powered sub-agent.
 
 ---
 

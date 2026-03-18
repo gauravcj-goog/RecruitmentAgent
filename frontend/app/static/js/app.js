@@ -229,27 +229,37 @@ class PortalApp {
             html += `
                 <div class="profile-card">
                     <h3>Educational Details</h3>
-                    ${Object.entries(jaf.educational_details).map(([k, v]) => {
-                        if (k === 'graduation_details' && typeof v === 'object' && v !== null) {
-                            return `
-                                <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
-                                    <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Graduation Details</h4>
-                                    ${Object.entries(v).map(([subK, subV]) => `
-                                        <div class="detail-row">
-                                            <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
-                                            <div class="detail-value">${formatValue(subV)}</div>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            `;
-                        }
-                        return `
-                            <div class="detail-row">
-                                <div class="detail-label">${this.formatLabel(k)}</div>
-                                <div class="detail-value">${formatValue(v)}</div>
+                    ${(jaf.educational_details.education_history && Array.isArray(jaf.educational_details.education_history)) ? 
+                        jaf.educational_details.education_history.map((edu, idx) => `
+                            <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
+                                <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Qualification ${idx + 1}: ${edu.course || 'Degree'}</h4>
+                                ${Object.entries(edu).map(([subK, subV]) => `
+                                    <div class="detail-row">
+                                        <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
+                                        <div class="detail-value">${formatValue(subV)}</div>
+                                    </div>
+                                `).join('')}
                             </div>
-                        `;
-                    }).join('')}
+                        `).join('') : ''}
+                    
+                    ${jaf.educational_details.graduation_details && typeof jaf.educational_details.graduation_details === 'object' ? `
+                        <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
+                            <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Graduation Details</h4>
+                            ${Object.entries(jaf.educational_details.graduation_details).map(([subK, subV]) => `
+                                <div class="detail-row">
+                                    <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
+                                    <div class="detail-value">${formatValue(subV)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    ${Object.entries(jaf.educational_details).filter(([k]) => k !== 'education_history' && k !== 'graduation_details').map(([k, v]) => `
+                        <div class="detail-row">
+                            <div class="detail-label">${this.formatLabel(k)}</div>
+                            <div class="detail-value">${formatValue(v)}</div>
+                        </div>
+                    `).join('')}
                 </div>
             `;
         }

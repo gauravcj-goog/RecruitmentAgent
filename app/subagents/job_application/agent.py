@@ -1,12 +1,8 @@
 """Job Application Agent definition for Cymbal Bank."""
 
 import os
-import sys
 import yaml
 from google.adk.agents import Agent
-
-# Add project root to path to allow absolute imports if needed
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 def load_prompt():
     """Load the prompt, document requirements, and JAF fields from YAML files."""
@@ -41,15 +37,18 @@ def load_prompt():
     
     return f"{content}\n\n{requirements_text}\n\n{jaf_text}\n\n{output_format}".strip()
 
-from .tools import store_job_application
+# Import raw functions instead of FunctionTool wrappers
+from tools.bigtable_tools import update_candidate_data, store_document_link, get_candidate_profile
+from tools.document_processor import extract_data_from_document
+from tools.vertex_search import search_hr_policies
 
 agent = Agent(
     name="job_application",
     description="Use this sub-agent to help candidates with job applications and process their documents.",
     model=os.getenv(
         "DEMO_AGENT_MODEL",
-        "gemini-live-2.5-flash-native-audio" if os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").upper() == "TRUE" else "gemini-2.5-flash-native-audio-preview-12-2025"
+        "gemini-2.0-flash"
     ),
     instruction=load_prompt(),
-    tools=[store_job_application],
+    tools=[update_candidate_data, store_document_link, extract_data_from_document, get_candidate_profile, search_hr_policies],
 )

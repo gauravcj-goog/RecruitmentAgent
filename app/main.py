@@ -1,34 +1,35 @@
-"""FastAPI application demonstrating ADK Bidi-streaming with WebSocket."""
+"""FastAPI application for Recruitment Portal using standard HTTP."""
 
-import asyncio
-import base64
-import json
 import logging
+import os
+import json
 import warnings
 from pathlib import Path
+from typing import List, Optional
 
+import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from google.cloud import storage
-import uuid
-from google.adk.agents.live_request_queue import LiveRequestQueue
-from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.agents.run_config import RunConfig
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-import os
+from fastapi.responses import StreamingResponse, JSONResponse
+from tools.bigtable_tools import get_candidate_profile, delete_candidate_profile
 
 # Load environment variables from .env file BEFORE importing agent
-load_dotenv(Path(__file__).parent / ".env")
+env_path = Path(__file__).parent / ".env"
+load_dotenv(env_path)
 
 # Import agent after loading environment variables
-# pylint: disable=wrong-import-position
-from recruitment_agent.agent import agent as recruitment_agent  # noqa: E402
+from recruitment_agent.agent import agent as recruitment_agent
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -39,36 +40,92 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 # Application name constant
 APP_NAME = "recruitment-portal"
 
-# ========================================
-# Phase 1: Application Initialization (once at startup)
-# ========================================
-
-# Init logger
-logger.info("Starting Recruitment Portal Multi-Agent")
 app = FastAPI()
 
 # Configure CORS
-# In production, replace "*" with specific allowed origins
-origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Define your session service
+# Initialize Session Service & Runner
 session_service = InMemorySessionService()
-
-# Define your runner
 runner = Runner(
     app_name=APP_NAME,
     agent=recruitment_agent,
     session_service=session_service,
 )
 
+# Serve static files
+static_path = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+
+@app.get("/")
+async def root():
+    return {"message": "Recruitment Portal API is running"}
+
+# ========================================
+# Chat Endpoint (HTTP Replace WebSocket)
+# ========================================
+
+@app.post("/api/chat")
+async def chat(
+    user_id: str = Body(...),
+    session_id: str = Body(...),
+    message: str = Body(...)
+):
+    """Standard HTTP Chat Endpoint with robust logging."""
+    logger.info(f"Chat request starting: user={user_id}, session={session_id}")
+    try:
+        # Ensure session exists
+        logger.info("Checking session...")
+        session = await session_service.get_session(
+            app_name=APP_NAME, 
+            user_id=user_id, 
+            session_id=session_id
+        )
+        if not session:
+            logger.info("Creating new session...")
+            await session_service.create_session(
+                app_name=APP_NAME, 
+                user_id=user_id, 
+                session_id=session_id
+            )
+
+        # Prepare message for ADK
+        logger.info(f"Preparing message: {message[:20]}...")
+        new_message = types.Content(
+            parts=[types.Part(text=message)],
+            role="user"
+        )
+
+        # Run the agent
+        logger.info("Starting runner.run_async...")
+        responses = []
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=new_message
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text:
+                        responses.append(part.text)
+                    if part.function_call:
+                        logger.info(f"Tool Call Detected: {part.function_call.name}")
+
+        final_response = "".join(responses).strip()
+        logger.info(f"Response generated: {final_response[:50]}...")
+        return {
+            "response": final_response,
+            "session_id": session_id
+        }
+    except Exception as e:
+        logger.error(f"CRITICAL CHAT ERROR: {e}", exc_info=True)
+        return {"error": str(e), "session_id": session_id}
 
 # ========================================
 # File Upload Endpoint
@@ -76,234 +133,86 @@ runner = Runner(
 
 @app.post("/upload/{session_uuid}")
 async def upload_file(session_uuid: str, file: UploadFile = File(...)):
-    """Uploads a file to GCS with a session-specific UUID prefix."""
-    logger.info(f"Received upload request for file: {file.filename}, type: {file.content_type}, session: {session_uuid}")
+    """Uploads a file to GCS Asia-South1 regional bucket."""
+    logger.info(f"Upload: {file.filename}, Session: {session_uuid}")
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    # Using the NEW regional bucket
     bucket_name = f"{project_id}-recruitment-uploads"
     
     try:
         storage_client = storage.Client()
         bucket = storage_client.bucket(bucket_name)
-        
-        # Create a unique path with session-specific prefix
         blob_name = f"{session_uuid}/{file.filename}"
         blob = bucket.blob(blob_name)
         
-        # Upload the file content
         content = await file.read()
         blob.upload_from_string(content, content_type=file.content_type)
         
         gcs_uri = f"gs://{bucket_name}/{blob_name}"
-        logger.info(f"File uploaded to {gcs_uri}")
-        
         return {"filename": file.filename, "gcs_uri": gcs_uri}
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         return {"error": str(e)}
 
 # ========================================
-# WebSocket Endpoint
+# Candidate Profile & Download Endpoints
 # ========================================
 
-
-@app.websocket("/ws/{user_id}/{session_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    user_id: str,
-    session_id: str,
-    proactivity: bool = True,
-    affective_dialog: bool = True,
-) -> None:
-    """WebSocket endpoint for bidirectional streaming with ADK.
-
-    Args:
-        websocket: The WebSocket connection
-        user_id: User identifier
-        session_id: Session identifier
-        proactivity: Enable proactive audio (native audio models only)
-        affective_dialog: Enable affective dialog (native audio models only)
-    """
-    logger.debug(
-        f"WebSocket connection request: user_id={user_id}, session_id={session_id}, "
-        f"proactivity={proactivity}, affective_dialog={affective_dialog}"
-    )
-    await websocket.accept()
-    logger.debug("WebSocket connection accepted")
-
-    # ========================================
-    # Phase 2: Session Initialization (once per streaming session)
-    # ========================================
-
-    # Automatically determine response modality based on model architecture
-    # Native audio models (containing "native-audio" in name)
-    # ONLY support AUDIO response modality.
-    # Half-cascade models support both TEXT and AUDIO,
-    # we default to TEXT for better performance.
-    model_name = recruitment_agent.model
-    is_native_audio = "native-audio" in model_name.lower() or "gemini-2.0" in model_name.lower() or "gemini-1.5" in model_name.lower()
-
-    if is_native_audio:
-        # Native audio models require AUDIO response modality
-        # with audio transcription
-        response_modalities = ["AUDIO"]
-
-        # Build RunConfig with optional proactivity and affective dialog
-        # These features are only supported on native audio models
-        run_config = RunConfig(
-            streaming_mode=StreamingMode.BIDI,
-            response_modalities=response_modalities,
-            input_audio_transcription=types.AudioTranscriptionConfig(),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
-            session_resumption=types.SessionResumptionConfig(),
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Aoede"
-                    )
-                )
-            ),
-            proactivity=(
-                types.ProactivityConfig(proactive_audio=True)
-                if proactivity
-                else None
-            ),
-            enable_affective_dialog=affective_dialog
-            if affective_dialog
-            else None,
-        )
-        logger.debug(
-            f"Native audio model detected: {model_name}, "
-            f"using AUDIO response modality, "
-            f"proactivity={proactivity}, affective_dialog={affective_dialog}"
-        )
-    else:
-        # Half-cascade models support TEXT response modality
-        # for faster performance
-        response_modalities = ["TEXT"]
-        run_config = RunConfig(
-            streaming_mode=StreamingMode.BIDI,
-            response_modalities=response_modalities,
-            input_audio_transcription=None,
-            output_audio_transcription=None,
-            session_resumption=types.SessionResumptionConfig(),
-        )
-        logger.debug(
-            f"Half-cascade model detected: {model_name}, "
-            "using TEXT response modality"
-        )
-        # Warn if user tried to enable native-audio-only features
-        if proactivity or affective_dialog:
-            logger.warning(
-                f"Proactivity and affective dialog are only supported on native "
-                f"audio models. Current model: {model_name}. "
-                f"These settings will be ignored."
-            )
-    logger.debug(f"RunConfig created: {run_config}")
-
-    # Get or create session (handles both new sessions and reconnections)
-    session = await session_service.get_session(
-        app_name=APP_NAME, user_id=user_id, session_id=session_id
-    )
-    if not session:
-        await session_service.create_session(
-            app_name=APP_NAME, user_id=user_id, session_id=session_id
-        )
-
-    live_request_queue = LiveRequestQueue()
-
-    # ========================================
-    # Phase 3: Active Session (concurrent bidirectional communication)
-    # ========================================
-
-    async def upstream_task() -> None:
-        """Receives messages from WebSocket and sends to LiveRequestQueue."""
-        logger.debug("upstream_task started")
-        while True:
-            # Receive message from WebSocket (text or binary)
-            message = await websocket.receive()
-
-            # Handle binary frames (audio data)
-            if "bytes" in message:
-                audio_data = message["bytes"]
-                logger.debug(
-                    f"Received binary audio chunk: {len(audio_data)} bytes"
-                )
-
-                audio_blob = types.Blob(
-                    mime_type="audio/pcm;rate=16000", data=audio_data
-                )
-                live_request_queue.send_realtime(audio_blob)
-
-            # Handle text frames (JSON messages)
-            elif "text" in message:
-                text_data = message["text"]
-                logger.debug(f"Received text message: {text_data[:100]}...")
-
-                json_message = json.loads(text_data)
-
-                # Extract text from JSON and send to LiveRequestQueue
-                if json_message.get("type") == "text":
-                    logger.debug(
-                        f"Sending text content: {json_message['text']}"
-                    )
-                    content = types.Content(
-                        parts=[types.Part(text=json_message["text"])]
-                    )
-                    live_request_queue.send_content(content)
-
-                # Handle image data
-                elif json_message.get("type") == "image":
-                    logger.debug("Received image data")
-
-                    # Decode base64 image data
-                    image_data = base64.b64decode(json_message["data"])
-                    mime_type = json_message.get("mimeType", "image/jpeg")
-
-                    logger.debug(
-                        f"Sending image: {len(image_data)} bytes, "
-                        f"type: {mime_type}"
-                    )
-
-                    # Send image as blob
-                    image_blob = types.Blob(
-                        mime_type=mime_type, data=image_data
-                    )
-                    live_request_queue.send_realtime(image_blob)
-
-    async def downstream_task() -> None:
-        """Receives Events from run_live() and sends to WebSocket."""
-        logger.debug("downstream_task started, calling runner.run_live()")
-        logger.debug(
-            f"Starting run_live with user_id={user_id}, session_id={session_id}"
-        )
-        async for event in runner.run_live(
-            user_id=user_id,
-            session_id=session_id,
-            live_request_queue=live_request_queue,
-            run_config=run_config,
-        ):
-            event_json = event.model_dump_json(exclude_none=True, by_alias=True)
-            logger.debug(f"[SERVER] Event: {event_json}")
-            await websocket.send_text(event_json)
-        logger.debug("run_live() generator completed")
-
-    # Run both tasks concurrently
-    # Exceptions from either task will propagate and cancel the other task
+@app.get("/api/candidate/{email}")
+async def get_candidate(email: str):
+    """Fetches candidate profile from BigTable."""
+    logger.info(f"Fetching profile for: {email}")
     try:
-        logger.debug(
-            "Starting asyncio.gather for upstream and downstream tasks"
-        )
-        await asyncio.gather(upstream_task(), downstream_task())
-        logger.debug("asyncio.gather completed normally")
-    except WebSocketDisconnect:
-        logger.debug("Client disconnected normally")
+        profile_json = get_candidate_profile(email)
+        profile = json.loads(profile_json)
+        return profile
     except Exception as e:
-        logger.error(f"Unexpected error in streaming tasks: {e}", exc_info=True)
-    finally:
-        # ========================================
-        # Phase 4: Session Termination
-        # ========================================
+        logger.error(f"Error fetching candidate: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
-        # Always close the queue, even if exceptions occurred
-        logger.debug("Closing live_request_queue")
-        live_request_queue.close()
+@app.delete("/api/candidate/{email}")
+async def delete_candidate(email: str):
+    """Deletes candidate profile from BigTable."""
+    logger.info(f"Deleting profile for: {email}")
+    try:
+        success = delete_candidate_profile(email)
+        if success:
+            return {"message": f"Successfully deleted profile for {email}"}
+        else:
+            return JSONResponse(status_code=500, content={"error": "Failed to delete profile from BigTable"})
+    except Exception as e:
+        logger.error(f"Error deleting candidate: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/download")
+async def download_file(uri: str):
+    """Proxies GCS file downloads."""
+    if not uri.startswith("gs://"):
+        return JSONResponse(status_code=400, content={"error": "Invalid GCS URI"})
+    
+    logger.info(f"Proxying download for: {uri}")
+    try:
+        parts = uri.replace("gs://", "").split("/")
+        bucket_name = parts[0]
+        blob_name = "/".join(parts[1:])
+        
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        
+        # Check if blob exists
+        if not blob.exists():
+            return JSONResponse(status_code=404, content={"error": "File not found in GCS"})
+
+        content = blob.download_as_bytes()
+        filename = blob_name.split("/")[-1]
+        
+        from io import BytesIO
+        return StreamingResponse(
+            BytesIO(content),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        logger.error(f"Download failed: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})

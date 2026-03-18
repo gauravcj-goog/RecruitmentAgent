@@ -1,1103 +1,336 @@
 /**
- * app.js: JS code for the Cymbal Bank voice assistant.
+ * Cymbal Bank Recruitment Portal - App Logic
+ * Handles HTTP chat and file uploads.
  */
 
-/**
- * WebSocket handling
- */
-
-// Connect the server with a WebSocket connection
-const userId = "demo-user";
-const sessionId = "demo-session-" + Math.random().toString(36).substring(7);
-let websocket = null;
-let is_audio = false;
-let pingInterval = null;
-
-// Get checkbox elements for RunConfig options
-const enableProactivityCheckbox = document.getElementById("enableProactivity");
-const enableAffectiveDialogCheckbox = document.getElementById("enableAffectiveDialog");
-
-// Reconnect WebSocket when RunConfig options change
-function handleRunConfigChange() {
-  if (websocket && websocket.readyState === WebSocket.OPEN) {
-    addSystemMessage("Reconnecting with updated settings...");
-    addConsoleEntry('outgoing', 'Reconnecting due to settings change', {
-      proactivity: enableProactivityCheckbox.checked,
-      affective_dialog: enableAffectiveDialogCheckbox.checked
-    }, '🔄', 'system');
-    websocket.close();
-    // connectWebsocket() will be called by onclose handler after delay
-  }
-}
-
-// Add change listeners to RunConfig checkboxes
-enableProactivityCheckbox.addEventListener("change", handleRunConfigChange);
-enableAffectiveDialogCheckbox.addEventListener("change", handleRunConfigChange);
-
-// Build WebSocket URL with RunConfig options as query parameters
-function getWebSocketUrl() {
-  // Use configured backend URL or fallback to window location
-  let baseUrl = window.APP_CONFIG && window.APP_CONFIG.BACKEND_URL
-    ? window.APP_CONFIG.BACKEND_URL
-    : (window.location.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location.host;
-
-  // Ensure the URL ends with the correct path if it's just a domain
-  if (!baseUrl.includes("/ws/")) {
-    // Remove trailing slash if present
-    baseUrl = baseUrl.replace(/\/$/, "");
-    baseUrl += "/ws/" + userId + "/" + sessionId;
-  }
-
-  const params = new URLSearchParams();
-
-  // Add proactivity option if checked
-  if (enableProactivityCheckbox && enableProactivityCheckbox.checked) {
-    params.append("proactivity", "true");
-  }
-
-  // Add affective dialog option if checked
-  if (enableAffectiveDialogCheckbox && enableAffectiveDialogCheckbox.checked) {
-    params.append("affective_dialog", "true");
-  }
-
-  const queryString = params.toString();
-  return queryString ? baseUrl + "?" + queryString : baseUrl;
-}
-
-// Get DOM elements
-const messageForm = document.getElementById("messageForm");
-const messageInput = document.getElementById("message");
-const messagesDiv = document.getElementById("messages");
-const statusIndicator = document.getElementById("statusIndicator");
-const statusText = document.getElementById("statusText");
-const consoleContent = document.getElementById("consoleContent");
-const clearConsoleBtn = document.getElementById("clearConsole");
-const showAudioEventsCheckbox = document.getElementById("showAudioEvents");
-let currentMessageId = null;
-let currentBubbleElement = null;
-let currentInputTranscriptionId = null;
-let currentInputTranscriptionElement = null;
-let currentOutputTranscriptionId = null;
-let currentOutputTranscriptionElement = null;
-let inputTranscriptionFinished = false; // Track if input transcription is complete for this turn
-
-// Helper function to clean spaces between CJK characters
-// Removes spaces between Japanese/Chinese/Korean characters while preserving spaces around Latin text
-function cleanCJKSpaces(text) {
-  // CJK Unicode ranges: Hiragana, Katakana, Kanji, CJK Unified Ideographs, Fullwidth forms
-  const cjkPattern = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uff00-\uffef]/;
-
-  // Remove spaces between two CJK characters
-  return text.replace(/(\S)\s+(?=\S)/g, (match, char1) => {
-    // Get the character after the space(s)
-    const nextCharMatch = text.match(new RegExp(char1 + '\\s+(.)', 'g'));
-    if (nextCharMatch && nextCharMatch.length > 0) {
-      const char2 = nextCharMatch[0].slice(-1);
-      // If both characters are CJK, remove the space
-      if (cjkPattern.test(char1) && cjkPattern.test(char2)) {
-        return char1;
-      }
-    }
-    return match;
-  });
-}
-
-// Console logging functionality
-function formatTimestamp() {
-  const now = new Date();
-  return now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-}
-
-function addConsoleEntry(type, content, data = null, emoji = null, author = null, isAudio = false) {
-  // Skip audio events if checkbox is unchecked
-  if (isAudio && !showAudioEventsCheckbox.checked) {
-    return;
-  }
-
-  const entry = document.createElement("div");
-  entry.className = `console-entry ${type}`;
-
-  const header = document.createElement("div");
-  header.className = "console-entry-header";
-
-  const leftSection = document.createElement("div");
-  leftSection.className = "console-entry-left";
-
-  // Add emoji icon if provided
-  if (emoji) {
-    const emojiIcon = document.createElement("span");
-    emojiIcon.className = "console-entry-emoji";
-    emojiIcon.textContent = emoji;
-    leftSection.appendChild(emojiIcon);
-  }
-
-  // Add expand/collapse icon
-  const expandIcon = document.createElement("span");
-  expandIcon.className = "console-expand-icon";
-  expandIcon.textContent = data ? "▶" : "";
-
-  const typeLabel = document.createElement("span");
-  typeLabel.className = "console-entry-type";
-  typeLabel.textContent = type === 'outgoing' ? '↑ Upstream' : type === 'incoming' ? '↓ Downstream' : '⚠ Error';
-
-  leftSection.appendChild(expandIcon);
-  leftSection.appendChild(typeLabel);
-
-  // Add author badge if provided
-  if (author) {
-    const authorBadge = document.createElement("span");
-    authorBadge.className = "console-entry-author";
-    authorBadge.textContent = author;
-    authorBadge.setAttribute('data-author', author);
-    leftSection.appendChild(authorBadge);
-  }
-
-  const timestamp = document.createElement("span");
-  timestamp.className = "console-entry-timestamp";
-  timestamp.textContent = formatTimestamp();
-
-  header.appendChild(leftSection);
-  header.appendChild(timestamp);
-
-  const contentDiv = document.createElement("div");
-  contentDiv.className = "console-entry-content";
-  contentDiv.textContent = content;
-
-  entry.appendChild(header);
-  entry.appendChild(contentDiv);
-
-  // JSON details (hidden by default)
-  let jsonDiv = null;
-  if (data) {
-    jsonDiv = document.createElement("div");
-    jsonDiv.className = "console-entry-json collapsed";
-    const pre = document.createElement("pre");
-    pre.textContent = JSON.stringify(data, null, 2);
-    jsonDiv.appendChild(pre);
-    entry.appendChild(jsonDiv);
-
-    // Make entry clickable if it has data
-    entry.classList.add("expandable");
-
-    // Toggle expand/collapse on click
-    entry.addEventListener("click", () => {
-      const isExpanded = !jsonDiv.classList.contains("collapsed");
-
-      if (isExpanded) {
-        // Collapse
-        jsonDiv.classList.add("collapsed");
-        expandIcon.textContent = "▶";
-        entry.classList.remove("expanded");
-      } else {
-        // Expand
-        jsonDiv.classList.remove("collapsed");
-        expandIcon.textContent = "▼";
-        entry.classList.add("expanded");
-      }
-    });
-  }
-
-  consoleContent.appendChild(entry);
-  consoleContent.scrollTop = consoleContent.scrollHeight;
-}
-
-function clearConsole() {
-  consoleContent.innerHTML = '';
-}
-
-// Clear console button handler
-clearConsoleBtn.addEventListener('click', clearConsole);
-
-// Update connection status UI
-function updateConnectionStatus(connected) {
-  if (connected) {
-    statusIndicator.classList.remove("disconnected");
-    statusText.textContent = "Connected";
-  } else {
-    statusIndicator.classList.add("disconnected");
-    statusText.textContent = "Disconnected";
-  }
-}
-
-// Create a message bubble element
-function createMessageBubble(text, isUser, isPartial = false) {
-  const messageDiv = document.createElement("div");
-  messageDiv.className = `message ${isUser ? "user" : "agent"}`;
-
-  const bubbleDiv = document.createElement("div");
-  bubbleDiv.className = "bubble";
-
-  const textP = document.createElement("p");
-  textP.className = "bubble-text";
-  textP.textContent = text;
-
-  // Add typing indicator for partial messages
-  if (isPartial && !isUser) {
-    const typingSpan = document.createElement("span");
-    typingSpan.className = "typing-indicator";
-    textP.appendChild(typingSpan);
-  }
-
-  bubbleDiv.appendChild(textP);
-  messageDiv.appendChild(bubbleDiv);
-
-  return messageDiv;
-}
-
-// Create an image message bubble element
-function createImageBubble(imageDataUrl, isUser) {
-  const messageDiv = document.createElement("div");
-  messageDiv.className = `message ${isUser ? "user" : "agent"}`;
-
-  const bubbleDiv = document.createElement("div");
-  bubbleDiv.className = "bubble image-bubble";
-
-  const img = document.createElement("img");
-  img.src = imageDataUrl;
-  img.className = "bubble-image";
-  img.alt = "Captured image";
-
-  bubbleDiv.appendChild(img);
-  messageDiv.appendChild(bubbleDiv);
-
-  return messageDiv;
-}
-
-// Update existing message bubble text
-function updateMessageBubble(element, text, isPartial = false) {
-  const textElement = element.querySelector(".bubble-text");
-
-  // Remove existing typing indicator
-  const existingIndicator = textElement.querySelector(".typing-indicator");
-  if (existingIndicator) {
-    existingIndicator.remove();
-  }
-
-  textElement.textContent = text;
-
-  // Add typing indicator for partial messages
-  if (isPartial) {
-    const typingSpan = document.createElement("span");
-    typingSpan.className = "typing-indicator";
-    textElement.appendChild(typingSpan);
-  }
-}
-
-// Add a system message
-function addSystemMessage(text) {
-  const messageDiv = document.createElement("div");
-  messageDiv.className = "system-message";
-  messageDiv.textContent = text;
-  messagesDiv.appendChild(messageDiv);
-  scrollToBottom();
-}
-
-// Scroll to bottom of messages
-function scrollToBottom() {
-  messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
-
-// Sanitize event data for console display (replace large audio data with summary)
-function sanitizeEventForDisplay(event) {
-  // Deep clone the event object
-  const sanitized = JSON.parse(JSON.stringify(event));
-
-  // Check for audio data in content.parts
-  if (sanitized.content && sanitized.content.parts) {
-    sanitized.content.parts = sanitized.content.parts.map(part => {
-      if (part.inlineData && part.inlineData.data) {
-        // Calculate byte size (base64 string length / 4 * 3, roughly)
-        const byteSize = Math.floor(part.inlineData.data.length * 0.75);
-        return {
-          ...part,
-          inlineData: {
-            ...part.inlineData,
-            data: `(${byteSize.toLocaleString()} bytes)`
-          }
-        };
-      }
-      return part;
-    });
-  }
-
-  return sanitized;
-}
-
-// WebSocket handlers
-function connectWebsocket() {
-  // Connect websocket
-  const ws_url = getWebSocketUrl();
-  websocket = new WebSocket(ws_url);
-
-  // Handle connection open
-  websocket.onopen = function () {
-    console.log("WebSocket connection opened.");
-    updateConnectionStatus(true);
-    addSystemMessage("Connected to Cymbal Bank Assistant");
-
-    // Start keepalive heartbeat
-    if (pingInterval) clearInterval(pingInterval);
-    pingInterval = setInterval(function () {
-      if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(JSON.stringify({ type: 'ping' }));
-      }
-    }, 10000);
-
-    // Log to console
-    addConsoleEntry('incoming', 'WebSocket Connected', {
-      userId: userId,
-      sessionId: sessionId,
-      url: ws_url
-    }, '🔌', 'system');
-
-    // Enable the Action buttons
-    document.getElementById("sendButton").disabled = false;
-    document.getElementById("startAudioButton").disabled = false;
-    document.getElementById("cameraButton").disabled = false;
-    document.getElementById("attachFileButton").disabled = false;
-    addSubmitHandler();
-  };
-
-  // Handle incoming messages
-  websocket.onmessage = function (event) {
-    // Parse the incoming ADK Event
-    const adkEvent = JSON.parse(event.data);
-    console.log("[AGENT TO CLIENT] ", adkEvent);
-
-    // Log to console panel
-    let eventSummary = 'Event';
-    let eventEmoji = '📨'; // Default emoji
-    const author = adkEvent.author || 'system';
-
-    if (adkEvent.turnComplete) {
-      eventSummary = 'Turn Complete';
-      eventEmoji = '✅';
-    } else if (adkEvent.interrupted) {
-      eventSummary = 'Interrupted';
-      eventEmoji = '⏸️';
-    } else if (adkEvent.inputTranscription) {
-      // Show transcription text in summary
-      const transcriptionText = adkEvent.inputTranscription.text || '';
-      const truncated = transcriptionText.length > 60
-        ? transcriptionText.substring(0, 60) + '...'
-        : transcriptionText;
-      eventSummary = `Input Transcription: "${truncated}"`;
-      eventEmoji = '📝';
-    } else if (adkEvent.outputTranscription) {
-      // Show transcription text in summary
-      const transcriptionText = adkEvent.outputTranscription.text || '';
-      const truncated = transcriptionText.length > 60
-        ? transcriptionText.substring(0, 60) + '...'
-        : transcriptionText;
-      eventSummary = `Output Transcription: "${truncated}"`;
-      eventEmoji = '📝';
-    } else if (adkEvent.usageMetadata) {
-      // Show token usage information
-      const usage = adkEvent.usageMetadata;
-      const promptTokens = usage.promptTokenCount || 0;
-      const responseTokens = usage.candidatesTokenCount || 0;
-      const totalTokens = usage.totalTokenCount || 0;
-      eventSummary = `Token Usage: ${totalTokens.toLocaleString()} total (${promptTokens.toLocaleString()} prompt + ${responseTokens.toLocaleString()} response)`;
-      eventEmoji = '📊';
-    } else if (adkEvent.content && adkEvent.content.parts) {
-      const hasText = adkEvent.content.parts.some(p => p.text);
-      const hasAudio = adkEvent.content.parts.some(p => p.inlineData);
-      const hasExecutableCode = adkEvent.content.parts.some(p => p.executableCode);
-      const hasCodeExecutionResult = adkEvent.content.parts.some(p => p.codeExecutionResult);
-
-      if (hasExecutableCode) {
-        // Show executable code
-        const codePart = adkEvent.content.parts.find(p => p.executableCode);
-        if (codePart && codePart.executableCode) {
-          const code = codePart.executableCode.code || '';
-          const language = codePart.executableCode.language || 'unknown';
-          const truncated = code.length > 60
-            ? code.substring(0, 60).replace(/\n/g, ' ') + '...'
-            : code.replace(/\n/g, ' ');
-          eventSummary = `Executable Code (${language}): ${truncated}`;
-          eventEmoji = '💻';
-        }
-      }
-
-      if (hasCodeExecutionResult) {
-        // Show code execution result
-        const resultPart = adkEvent.content.parts.find(p => p.codeExecutionResult);
-        if (resultPart && resultPart.codeExecutionResult) {
-          const outcome = resultPart.codeExecutionResult.outcome || 'UNKNOWN';
-          const output = resultPart.codeExecutionResult.output || '';
-          const truncatedOutput = output.length > 60
-            ? output.substring(0, 60).replace(/\n/g, ' ') + '...'
-            : output.replace(/\n/g, ' ');
-          eventSummary = `Code Execution Result (${outcome}): ${truncatedOutput}`;
-          eventEmoji = outcome === 'OUTCOME_OK' ? '✅' : '❌';
-        }
-      }
-
-      if (hasText) {
-        // Show text preview in summary
-        const textPart = adkEvent.content.parts.find(p => p.text);
-        if (textPart && textPart.text) {
-          const text = textPart.text;
-          const truncated = text.length > 80
-            ? text.substring(0, 80) + '...'
-            : text;
-          eventSummary = `Text: "${truncated}"`;
-          eventEmoji = '💭';
-        } else {
-          eventSummary = 'Text Response';
-          eventEmoji = '💭';
-        }
-      }
-
-      if (hasAudio) {
-        // Extract audio info for summary
-        const audioPart = adkEvent.content.parts.find(p => p.inlineData);
-        if (audioPart && audioPart.inlineData) {
-          const mimeType = audioPart.inlineData.mimeType || 'unknown';
-          const dataLength = audioPart.inlineData.data ? audioPart.inlineData.data.length : 0;
-          // Base64 string length / 4 * 3 gives approximate bytes
-          const byteSize = Math.floor(dataLength * 0.75);
-          eventSummary = `Audio Response: ${mimeType} (${byteSize.toLocaleString()} bytes)`;
-          eventEmoji = '🔊';
-        } else {
-          eventSummary = 'Audio Response';
-          eventEmoji = '🔊';
-        }
-
-        // Log audio event with isAudio flag (filtered by checkbox)
-        const sanitizedEvent = sanitizeEventForDisplay(adkEvent);
-        addConsoleEntry('incoming', eventSummary, sanitizedEvent, eventEmoji, author, true);
-      }
+class PortalApp {
+    constructor() {
+        this.userId = 'user-' + Math.random().toString(36).substr(2, 9);
+        this.sessionId = 'session-' + Date.now();
+        
+        // Determine API Base URL robustly
+        this.apiBase = this.getApiBase();
+        console.log("Using API Base:", this.apiBase);
+
+        // DOM Elements
+        this.chatWindow = document.getElementById('chat-window');
+        this.userInput = document.getElementById('user-input');
+        this.sendBtn = document.getElementById('send-btn');
+        this.fileInput = document.getElementById('file-input');
+        this.typingIndicator = document.getElementById('typing-indicator');
+        
+        // New Tab DOM Elements
+        this.tabChat = document.getElementById('tab-chat');
+        this.tabProfile = document.getElementById('tab-profile');
+        this.chatPane = document.getElementById('chat-pane');
+        this.profilePane = document.getElementById('profile-pane');
+        this.profileEmailInput = document.getElementById('profile-email-input');
+        this.profileContent = document.getElementById('profile-content');
+        
+        this.init();
     }
 
-    // Create a sanitized version for console display (replace large audio data with summary)
-    // Skip if already logged as audio event above
-    const isAudioOnlyEvent = adkEvent.content && adkEvent.content.parts &&
-      adkEvent.content.parts.some(p => p.inlineData) &&
-      !adkEvent.content.parts.some(p => p.text);
-    if (!isAudioOnlyEvent) {
-      const sanitizedEvent = sanitizeEventForDisplay(adkEvent);
-      addConsoleEntry('incoming', eventSummary, sanitizedEvent, eventEmoji, author);
+    getApiBase() {
+        // 1. Try modern window.CONFIG
+        if (window.CONFIG && window.CONFIG.BACKEND_URI) {
+            return window.CONFIG.BACKEND_URI.replace(/\/$/, "");
+        }
+        // 2. Try legacy window.APP_CONFIG and convert wss to https
+        if (window.APP_CONFIG && window.APP_CONFIG.BACKEND_URL) {
+            return window.APP_CONFIG.BACKEND_URL.replace("wss://", "https://").replace("ws://", "http://").replace(/\/$/, "");
+        }
+        // 3. Fallback to current origin (best for single-service architecture)
+        return window.location.origin;
     }
 
-    // Handle turn complete event
-    if (adkEvent.turnComplete === true) {
-      // Remove typing indicator from current message
-      if (currentBubbleElement) {
-        const textElement = currentBubbleElement.querySelector(".bubble-text");
-        const typingIndicator = textElement.querySelector(".typing-indicator");
-        if (typingIndicator) {
-          typingIndicator.remove();
-        }
-      }
-      // Remove typing indicator from current output transcription
-      if (currentOutputTranscriptionElement) {
-        const textElement = currentOutputTranscriptionElement.querySelector(".bubble-text");
-        const typingIndicator = textElement.querySelector(".typing-indicator");
-        if (typingIndicator) {
-          typingIndicator.remove();
-        }
-      }
-      currentMessageId = null;
-      currentBubbleElement = null;
-      currentOutputTranscriptionId = null;
-      currentOutputTranscriptionElement = null;
-      inputTranscriptionFinished = false; // Reset for next turn
+    init() {
+        // Event Listeners
+        this.sendBtn.addEventListener('click', () => this.handleSendMessage());
+        this.userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.handleSendMessage();
+        });
+        
+        this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+        
+        console.log("Portal Initialized", { userId: this.userId, sessionId: this.sessionId });
     }
 
-    // Handle interrupted event
-    if (adkEvent.interrupted === true) {
-      // Stop audio playback if it's playing
-      if (audioPlayerNode) {
-        audioPlayerNode.port.postMessage({ command: "endOfAudio" });
-      }
-
-      // Keep the partial message but mark it as interrupted
-      if (currentBubbleElement) {
-        const textElement = currentBubbleElement.querySelector(".bubble-text");
-
-        // Remove typing indicator
-        const typingIndicator = textElement.querySelector(".typing-indicator");
-        if (typingIndicator) {
-          typingIndicator.remove();
-        }
-
-        // Add interrupted marker
-        currentBubbleElement.classList.add("interrupted");
-      }
-
-      // Keep the partial output transcription but mark it as interrupted
-      if (currentOutputTranscriptionElement) {
-        const textElement = currentOutputTranscriptionElement.querySelector(".bubble-text");
-
-        // Remove typing indicator
-        const typingIndicator = textElement.querySelector(".typing-indicator");
-        if (typingIndicator) {
-          typingIndicator.remove();
-        }
-
-        // Add interrupted marker
-        currentOutputTranscriptionElement.classList.add("interrupted");
-      }
-
-      // Reset state so new content creates a new bubble
-      currentMessageId = null;
-      currentBubbleElement = null;
-      currentOutputTranscriptionId = null;
-      currentOutputTranscriptionElement = null;
-      inputTranscriptionFinished = false; // Reset for next turn
+    appendMessage(text, role) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${role}`;
+        msgDiv.innerText = text;
+        this.chatWindow.appendChild(msgDiv);
+        this.chatWindow.scrollTop = this.chatWindow.scrollHeight;
     }
 
-    // Handle input transcription (user's spoken words)
-    if (adkEvent.inputTranscription && adkEvent.inputTranscription.text) {
-      const transcriptionText = adkEvent.inputTranscription.text;
-      const isFinished = adkEvent.inputTranscription.finished;
+    showTyping(show) {
+        this.typingIndicator.style.display = show ? 'block' : 'none';
+    }
 
-      if (transcriptionText) {
-        // Ignore late-arriving transcriptions after we've finished for this turn
-        if (inputTranscriptionFinished) {
-          return;
-        }
+    async handleSendMessage() {
+        const text = this.userInput.value.trim();
+        if (!text) return;
 
-        if (currentInputTranscriptionId == null) {
-          // Create new transcription bubble
-          currentInputTranscriptionId = Math.random().toString(36).substring(7);
-          // Clean spaces between CJK characters
-          const cleanedText = cleanCJKSpaces(transcriptionText);
-          currentInputTranscriptionElement = createMessageBubble(cleanedText, true, !isFinished);
-          currentInputTranscriptionElement.id = currentInputTranscriptionId;
+        this.appendMessage(text, 'user');
+        this.userInput.value = '';
+        this.showTyping(true);
 
-          // Add a special class to indicate it's a transcription
-          currentInputTranscriptionElement.classList.add("transcription");
+        try {
+            const response = await fetch(`${this.apiBase}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: this.userId,
+                    session_id: this.sessionId,
+                    message: text
+                })
+            });
 
-          messagesDiv.appendChild(currentInputTranscriptionElement);
-        } else {
-          // Update existing transcription bubble only if model hasn't started responding
-          // This prevents late partial transcriptions from overwriting complete ones
-          if (currentOutputTranscriptionId == null && currentMessageId == null) {
-            if (isFinished) {
-              // Final transcription contains the complete text, replace entirely
-              const cleanedText = cleanCJKSpaces(transcriptionText);
-              updateMessageBubble(currentInputTranscriptionElement, cleanedText, false);
-            } else {
-              // Partial transcription - append to existing text
-              const existingText = currentInputTranscriptionElement.querySelector(".bubble-text").textContent;
-              // Remove typing indicator if present
-              const cleanText = existingText.replace(/\.\.\.$/, '');
-              // Clean spaces between CJK characters before updating
-              const accumulatedText = cleanCJKSpaces(cleanText + transcriptionText);
-              updateMessageBubble(currentInputTranscriptionElement, accumulatedText, true);
+            const data = await response.json();
+            this.showTyping(false);
+
+            if (data.response) {
+                this.appendMessage(data.response, 'bot');
+            } else if (data.error) {
+                this.appendMessage(`System Error: ${data.error}`, 'bot');
             }
-          }
+        } catch (error) {
+            console.error("Chat Error", error);
+            this.showTyping(false);
+            this.appendMessage("Connection lost. Please check your internet or try again.", 'bot');
         }
-
-        // If transcription is finished, reset the state and mark as complete
-        if (isFinished) {
-          currentInputTranscriptionId = null;
-          currentInputTranscriptionElement = null;
-          inputTranscriptionFinished = true; // Prevent duplicate bubbles from late events
-        }
-
-        scrollToBottom();
-      }
     }
 
-    // Handle output transcription (model's spoken words)
-    if (adkEvent.outputTranscription && adkEvent.outputTranscription.text) {
-      const transcriptionText = adkEvent.outputTranscription.text;
-      const isFinished = adkEvent.outputTranscription.finished;
+    async handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
 
-      if (transcriptionText) {
-        // Finalize any active input transcription when server starts responding
-        if (currentInputTranscriptionId != null && currentOutputTranscriptionId == null) {
-          // This is the first output transcription - finalize input transcription
-          const textElement = currentInputTranscriptionElement.querySelector(".bubble-text");
-          const typingIndicator = textElement.querySelector(".typing-indicator");
-          if (typingIndicator) {
-            typingIndicator.remove();
-          }
-          // Reset input transcription state so next user input creates new balloon
-          currentInputTranscriptionId = null;
-          currentInputTranscriptionElement = null;
-          inputTranscriptionFinished = true; // Prevent duplicate bubbles from late events
+        this.appendMessage(`Uploading: ${file.name}...`, 'user');
+        this.showTyping(true);
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch(`${this.apiBase}/upload/${this.sessionId}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+            
+            if (data.gcs_uri) {
+                this.appendMessage(`Uploaded successfully: ${file.name}. Processing document...`, 'bot');
+                // Inform the agent that a document has been uploaded
+                await this.sendHiddenMessage(`I have uploaded a document: ${file.name}. Its GCS URI is ${data.gcs_uri}. Please process it.`);
+            } else {
+                this.showTyping(false);
+                this.appendMessage(`Upload failed: ${data.error || 'Unknown error'}`, 'bot');
+            }
+        } catch (error) {
+            console.error("Upload Error", error);
+            this.showTyping(false);
+            this.appendMessage("Upload failed due to network error.", 'bot');
         }
+    }
 
-        if (currentOutputTranscriptionId == null) {
-          // Create new transcription bubble for agent
-          currentOutputTranscriptionId = Math.random().toString(36).substring(7);
-          currentOutputTranscriptionElement = createMessageBubble(transcriptionText, false, !isFinished);
-          currentOutputTranscriptionElement.id = currentOutputTranscriptionId;
+    async sendHiddenMessage(text) {
+        try {
+            const response = await fetch(`${this.apiBase}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: this.userId,
+                    session_id: this.sessionId,
+                    message: text
+                })
+            });
+            const data = await response.json();
+            this.showTyping(false);
+            if (data.response) {
+                this.appendMessage(data.response, 'bot');
+            }
+        } catch (error) {
+            console.error("Hidden Message Error", error);
+        }
+    }
 
-          // Add a special class to indicate it's a transcription
-          currentOutputTranscriptionElement.classList.add("transcription");
-
-          messagesDiv.appendChild(currentOutputTranscriptionElement);
+    switchTab(tab) {
+        if (tab === 'chat') {
+            this.tabChat.classList.add('active');
+            this.tabProfile.classList.remove('active');
+            this.chatPane.classList.add('active');
+            this.profilePane.classList.remove('active');
         } else {
-          // Update existing transcription bubble
-          if (isFinished) {
-            // Final transcription contains the complete text, replace entirely
-            updateMessageBubble(currentOutputTranscriptionElement, transcriptionText, false);
-          } else {
-            // Partial transcription - append to existing text
-            const existingText = currentOutputTranscriptionElement.querySelector(".bubble-text").textContent;
-            // Remove typing indicator if present
-            const cleanText = existingText.replace(/\.\.\.$/, '');
-            updateMessageBubble(currentOutputTranscriptionElement, cleanText + transcriptionText, true);
-          }
+            this.tabChat.classList.remove('active');
+            this.tabProfile.classList.add('active');
+            this.chatPane.classList.remove('active');
+            this.profilePane.classList.add('active');
         }
-
-        // If transcription is finished, reset the state
-        if (isFinished) {
-          currentOutputTranscriptionId = null;
-          currentOutputTranscriptionElement = null;
-        }
-
-        scrollToBottom();
-      }
     }
 
-    // Handle content events (text or audio)
-    if (adkEvent.content && adkEvent.content.parts) {
-      const parts = adkEvent.content.parts;
-
-      // Finalize any active input transcription when server starts responding with content
-      if (currentInputTranscriptionId != null && currentMessageId == null && currentOutputTranscriptionId == null) {
-        // This is the first content event - finalize input transcription
-        const textElement = currentInputTranscriptionElement.querySelector(".bubble-text");
-        const typingIndicator = textElement.querySelector(".typing-indicator");
-        if (typingIndicator) {
-          typingIndicator.remove();
-        }
-        // Reset input transcription state so next user input creates new balloon
-        currentInputTranscriptionId = null;
-        currentInputTranscriptionElement = null;
-        inputTranscriptionFinished = true; // Prevent duplicate bubbles from late events
-      }
-
-      for (const part of parts) {
-        // Handle inline data (audio)
-        if (part.inlineData) {
-          const mimeType = part.inlineData.mimeType;
-          const data = part.inlineData.data;
-
-          if (mimeType && mimeType.startsWith("audio/pcm") && audioPlayerNode) {
-            audioPlayerNode.port.postMessage(base64ToArray(data));
-          }
+    async handleFetchProfile() {
+        const email = this.profileEmailInput.value.trim();
+        if (!email) {
+            alert("Please enter an email address.");
+            return;
         }
 
-        // Handle text
-        if (part.text) {
-          // Add a new message bubble for a new turn
-          if (currentMessageId == null) {
-            currentMessageId = Math.random().toString(36).substring(7);
-            currentBubbleElement = createMessageBubble(part.text, false, true);
-            currentBubbleElement.id = currentMessageId;
-            messagesDiv.appendChild(currentBubbleElement);
-          } else {
-            // Update the existing message bubble with accumulated text
-            const existingText = currentBubbleElement.querySelector(".bubble-text").textContent;
-            // Remove the "..." if present
-            const cleanText = existingText.replace(/\.\.\.$/, '');
-            updateMessageBubble(currentBubbleElement, cleanText + part.text, true);
-          }
+        this.profileContent.innerHTML = '<div style="text-align: center; padding: 2rem;">Fetching profile data...</div>';
 
-          // Scroll down to the bottom of the messagesDiv
-          scrollToBottom();
+        try {
+            const response = await fetch(`${this.apiBase}/api/candidate/${email}`);
+            const data = await response.json();
+
+            if (data.error) {
+                this.profileContent.innerHTML = `<div style="text-align: center; color: red; padding: 2rem;">Error: ${data.error}</div>`;
+            } else if (!data.jaf1_pre_offer_document || Object.keys(data.jaf1_pre_offer_document).length === 0) {
+                this.profileContent.innerHTML = '<div style="text-align: center; padding: 2rem;">No profile found for this email.</div>';
+            } else {
+                this.currentProfileEmail = email;
+                this.renderProfile(data.jaf1_pre_offer_document);
+            }
+        } catch (error) {
+            console.error("Fetch Profile Error", error);
+            this.profileContent.innerHTML = '<div style="text-align: center; color: red; padding: 2rem;">Failed to fetch profile. Check console for details.</div>';
         }
-      }
     }
-  };
 
-  // Handle connection close
-  websocket.onclose = function () {
-    console.log("WebSocket connection closed.");
-    if (pingInterval) clearInterval(pingInterval);
-    updateConnectionStatus(false);
-    document.getElementById("sendButton").disabled = true;
-    addSystemMessage("Connection closed. Reconnecting in 5 seconds...");
+    renderProfile(jaf) {
+        let html = '';
 
-    // Log to console
-    addConsoleEntry('error', 'WebSocket Disconnected', {
-      status: 'Connection closed',
-      reconnecting: true,
-      reconnectDelay: '5 seconds'
-    }, '🔌', 'system');
+        // Helper to format values (including booleans)
+        const formatValue = (val) => {
+            if (val === true) return '<span style="color: #2e7d32; font-weight: 700;">Yes</span>';
+            if (val === false) return '<span style="color: #c62828; font-weight: 700;">No</span>';
+            if (typeof val === 'object' && val !== null) {
+                return `<pre style="margin:0; background:#f8f9fa; padding:0.6rem; border-radius:4px; font-size:0.85rem; border: 1px solid #e0e0e0; overflow-x: auto;">${JSON.stringify(val, null, 2)}</pre>`;
+            }
+            return val || 'N/A';
+        };
 
-    setTimeout(function () {
-      console.log("Reconnecting...");
+        // Personal Details
+        if (jaf.personal_details) {
+            html += `
+                <div class="profile-card">
+                    <h3>Personal Details</h3>
+                    ${Object.entries(jaf.personal_details).map(([k, v]) => `
+                        <div class="detail-row">
+                            <div class="detail-label">${this.formatLabel(k)}</div>
+                            <div class="detail-value">${formatValue(v)}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
 
-      // Log reconnection attempt to console
-      addConsoleEntry('outgoing', 'Reconnecting to Cymbal Bank server...', {
-        userId: userId,
-        sessionId: sessionId
-      }, '🔄', 'system');
+        // Educational Details
+        if (jaf.educational_details) {
+            html += `
+                <div class="profile-card">
+                    <h3>Educational Details</h3>
+                    ${Object.entries(jaf.educational_details).map(([k, v]) => {
+                        if (k === 'graduation_details' && typeof v === 'object' && v !== null) {
+                            return `
+                                <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
+                                    <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Graduation Details</h4>
+                                    ${Object.entries(v).map(([subK, subV]) => `
+                                        <div class="detail-row">
+                                            <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
+                                            <div class="detail-value">${formatValue(subV)}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `;
+                        }
+                        return `
+                            <div class="detail-row">
+                                <div class="detail-label">${this.formatLabel(k)}</div>
+                                <div class="detail-value">${formatValue(v)}</div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
 
-      connectWebsocket();
-    }, 5000);
-  };
+        // Additional Details
+        if (jaf.additional_details) {
+            html += `
+                <div class="profile-card">
+                    <h3>Additional Details</h3>
+                    ${Object.entries(jaf.additional_details).map(([k, v]) => `
+                        <div class="detail-row">
+                            <div class="detail-label">${this.formatLabel(k)}</div>
+                            <div class="detail-value">${formatValue(v)}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
 
-  websocket.onerror = function (e) {
-    console.log("WebSocket error: ", e);
-    updateConnectionStatus(false);
+        // Uploaded Documents
+        if (jaf.uploaded_documents && jaf.uploaded_documents.length > 0) {
+            html += `
+                <div class="profile-card">
+                    <h3>Uploaded Documents</h3>
+                    <ul class="doc-list">
+                        ${jaf.uploaded_documents.map(doc => `
+                            <li class="doc-item">
+                                <div>
+                                    <strong style="color: var(--secondary);">${doc.type}</strong><br>
+                                    <small style="color: #666;">${doc.document_name}</small>
+                                </div>
+                                <a href="${this.apiBase}/api/download?uri=${encodeURIComponent(doc.document_link)}" class="btn-download" download>Download</a>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+        }
 
-    // Log to console
-    addConsoleEntry('error', 'WebSocket Error', {
-      error: e.type,
-      message: 'Connection error occurred'
-    }, '⚠️', 'system');
-  };
-}
-connectWebsocket();
+        // Delete Action
+        if (this.currentProfileEmail) {
+            html += `
+                <div class="profile-actions">
+                    <button onclick="app.handleDeleteProfile('${this.currentProfileEmail}')" class="btn-delete">Delete This Profile</button>
+                </div>
+            `;
+        }
 
-// Add submit handler to the form
-function addSubmitHandler() {
-  messageForm.onsubmit = function (e) {
-    e.preventDefault();
-    const message = messageInput.value.trim();
-    if (message) {
-      // Add user message bubble
-      const userBubble = createMessageBubble(message, true, false);
-      messagesDiv.appendChild(userBubble);
-      scrollToBottom();
-
-      // Clear input
-      messageInput.value = "";
-
-      // Send message to server
-      sendMessage(message);
-      console.log("[CLIENT TO AGENT] " + message);
+        this.profileContent.innerHTML = html || '<div style="text-align: center; padding: 2rem;">Profile found but no specific details captured yet.</div>';
     }
-    return false;
-  };
+
+    async handleDeleteProfile(email) {
+        if (!confirm(`Are you sure you want to delete the profile for ${email}? This action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${this.apiBase}/api/candidate/${email}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+
+            if (data.message) {
+                alert(data.message);
+                this.profileEmailInput.value = '';
+                this.profileContent.innerHTML = '<div style="text-align: center; color: #888; margin-top: 3rem;">Profile deleted. Enter a new email address above.</div>';
+            } else {
+                alert(`Error: ${data.error || 'Failed to delete profile'}`);
+            }
+        } catch (error) {
+            console.error("Delete Profile Error", error);
+            alert("Failed to delete profile due to network error.");
+        }
+    }
+
+    formatLabel(key) {
+        return key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
 }
 
-// Send a message to the server as JSON
-function sendMessage(message) {
-  if (websocket && websocket.readyState == WebSocket.OPEN) {
-    const jsonMessage = JSON.stringify({
-      type: "text",
-      text: message
-    });
-    websocket.send(jsonMessage);
-
-    // Log to console panel
-    addConsoleEntry('outgoing', 'User Message: ' + message, null, '💬', 'user');
-  }
-}
-
-// Decode Base64 data to Array
-// Handles both standard base64 and base64url encoding
-function base64ToArray(base64) {
-  // Convert base64url to standard base64
-  // Replace URL-safe characters: - with +, _ with /
-  let standardBase64 = base64.replace(/-/g, '+').replace(/_/g, '/');
-
-  // Add padding if needed
-  while (standardBase64.length % 4) {
-    standardBase64 += '=';
-  }
-
-  const binaryString = window.atob(standardBase64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-/**
- * Camera handling
- */
-
-const cameraButton = document.getElementById("cameraButton");
-const cameraModal = document.getElementById("cameraModal");
-const cameraPreview = document.getElementById("cameraPreview");
-const closeCameraModal = document.getElementById("closeCameraModal");
-const cancelCamera = document.getElementById("cancelCamera");
-const captureImageBtn = document.getElementById("captureImage");
-
-let cameraStream = null;
-
-// Open camera modal and start preview
-async function openCameraPreview() {
-  try {
-    // Request access to the user's webcam
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 768 },
-        height: { ideal: 768 },
-        facingMode: 'user'
-      }
-    });
-
-    // Set the stream to the video element
-    cameraPreview.srcObject = cameraStream;
-
-    // Show the modal
-    cameraModal.classList.add('show');
-
-  } catch (error) {
-    console.error('Error accessing camera:', error);
-    addSystemMessage(`Failed to access camera: ${error.message}`);
-
-    // Log to console
-    addConsoleEntry('error', 'Camera access failed', {
-      error: error.message,
-      name: error.name
-    }, '⚠️', 'system');
-  }
-}
-
-// Close camera modal and stop preview
-function closeCameraPreview() {
-  // Stop the camera stream
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(track => track.stop());
-    cameraStream = null;
-  }
-
-  // Clear the video source
-  cameraPreview.srcObject = null;
-
-  // Hide the modal
-  cameraModal.classList.remove('show');
-}
-
-// Capture image from the live preview
-function captureImageFromPreview() {
-  if (!cameraStream) {
-    addSystemMessage('No camera stream available');
-    return;
-  }
-
-  try {
-    // Create canvas to capture the frame
-    const canvas = document.createElement('canvas');
-    canvas.width = cameraPreview.videoWidth;
-    canvas.height = cameraPreview.videoHeight;
-    const context = canvas.getContext('2d');
-
-    // Draw current video frame to canvas
-    context.drawImage(cameraPreview, 0, 0, canvas.width, canvas.height);
-
-    // Convert canvas to data URL for display
-    const imageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-
-    // Display the captured image in the chat
-    const imageBubble = createImageBubble(imageDataUrl, true);
-    messagesDiv.appendChild(imageBubble);
-    scrollToBottom();
-
-    // Convert canvas to blob for sending to server
-    canvas.toBlob((blob) => {
-      // Convert blob to base64 for sending to server
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64data = reader.result.split(',')[1]; // Remove data:image/jpeg;base64, prefix
-        sendImage(base64data);
-      };
-      reader.readAsDataURL(blob);
-
-      // Log to console
-      addConsoleEntry('outgoing', `Image captured: ${blob.size} bytes (JPEG)`, {
-        size: blob.size,
-        type: 'image/jpeg',
-        dimensions: `${canvas.width}x${canvas.height}`
-      }, '📷', 'user');
-    }, 'image/jpeg', 0.85);
-
-    // Close the camera modal
-    closeCameraPreview();
-
-  } catch (error) {
-    console.error('Error capturing image:', error);
-    addSystemMessage(`Failed to capture image: ${error.message}`);
-
-    // Log to console
-    addConsoleEntry('error', 'Image capture failed', {
-      error: error.message,
-      name: error.name
-    }, '⚠️', 'system');
-  }
-}
-
-// Send image to server
-function sendImage(base64Image) {
-  if (websocket && websocket.readyState === WebSocket.OPEN) {
-    const jsonMessage = JSON.stringify({
-      type: "image",
-      data: base64Image,
-      mimeType: "image/jpeg"
-    });
-    websocket.send(jsonMessage);
-    console.log("[CLIENT TO AGENT] Sent image");
-  }
-}
-
-// Event listeners
-cameraButton.addEventListener("click", openCameraPreview);
-closeCameraModal.addEventListener("click", closeCameraPreview);
-cancelCamera.addEventListener("click", closeCameraPreview);
-captureImageBtn.addEventListener("click", captureImageFromPreview);
-
-// Close modal when clicking outside of it
-cameraModal.addEventListener("click", (event) => {
-  if (event.target === cameraModal) {
-    closeCameraPreview();
-  }
+// Start the app when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    window.app = new PortalApp();
 });
-
-/**
- * Audio handling
- */
-
-let audioPlayerNode;
-let audioPlayerContext;
-let audioRecorderNode;
-let audioRecorderContext;
-let micStream;
-
-// Import the audio worklets
-import { startAudioPlayerWorklet } from "./audio-player.js";
-import { startAudioRecorderWorklet } from "./audio-recorder.js";
-
-// Start audio
-function startAudio() {
-  // Start audio output
-  startAudioPlayerWorklet().then(([node, ctx]) => {
-    audioPlayerNode = node;
-    audioPlayerContext = ctx;
-  });
-  // Start audio input
-  startAudioRecorderWorklet(audioRecorderHandler).then(
-    ([node, ctx, stream]) => {
-      audioRecorderNode = node;
-      audioRecorderContext = ctx;
-      micStream = stream;
-    }
-  );
-}
-
-// Start the audio only when the user clicked the button
-// (due to the gesture requirement for the Web Audio API)
-const startAudioButton = document.getElementById("startAudioButton");
-startAudioButton.addEventListener("click", () => {
-  startAudioButton.disabled = true;
-  startAudio();
-  is_audio = true;
-  addSystemMessage("Audio mode enabled - you can now speak to the agent");
-
-  // Log to console
-  addConsoleEntry('outgoing', 'Audio Mode Enabled', {
-    status: 'Audio worklets started',
-    message: 'Microphone active - audio input will be sent to agent'
-  }, '🎤', 'system');
-});
-
-// Audio recorder handler
-function audioRecorderHandler(pcmData) {
-  if (websocket && websocket.readyState === WebSocket.OPEN && is_audio) {
-    // Send audio as binary WebSocket frame (more efficient than base64 JSON)
-    websocket.send(pcmData);
-    console.log("[CLIENT TO AGENT] Sent audio chunk: %s bytes", pcmData.byteLength);
-
-    // Log to console panel (optional, can be noisy with frequent audio chunks)
-    // addConsoleEntry('outgoing', `Audio chunk: ${pcmData.byteLength} bytes`);
-  }
-}
-
-/**
- * QR Code handling
- */
-function generateHeaderQR() {
-  const url = window.location.href;
-  const qrContainer = document.getElementById("qrcode-header");
-
-  if (qrContainer) {
-    qrContainer.innerHTML = "";
-    new QRCode(qrContainer, {
-      text: url,
-      width: 100, // Higher resolution for better scaling
-      height: 100,
-      colorDark: "#003366", // Cymbal Bank Primary Color
-      colorLight: "#ffffff",
-      correctLevel: QRCode.CorrectLevel.L // Low error correction for smaller code
-    });
-
-    // Log to console
-    addConsoleEntry('incoming', 'Static QR Code Generated in Header', {
-      url: url,
-      size: '50px (scaled from 100)',
-      container: 'qrcode-header'
-    }, '📱', 'system');
-  }
-}
-
-// Generate QR code on load
-window.addEventListener("load", generateHeaderQR);
-
-// File Upload handling
-const attachFileButton = document.getElementById("attachFileButton");
-const fileInput = document.getElementById("fileInput");
-
-if (attachFileButton && fileInput) {
-  attachFileButton.addEventListener("click", () => {
-    fileInput.click();
-  });
-
-  fileInput.addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    addConsoleEntry('outgoing', `Uploading file: ${file.name}`, { size: file.size, type: file.type }, '📎', 'user');
-    addSystemMessage(`Uploading ${file.name}...`);
-    attachFileButton.disabled = true;
-
-    try {
-      // Use configured backend URL for the upload endpoint
-      let uploadBaseUrl = window.APP_CONFIG && window.APP_CONFIG.BACKEND_URL
-        ? window.APP_CONFIG.BACKEND_URL
-        : window.location.origin;
-      
-      // Remove trailing slash if present
-      uploadBaseUrl = uploadBaseUrl.replace(/\/$/, "");
-      
-      // Convert ws/wss to http/https for fetch
-      uploadBaseUrl = uploadBaseUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-      
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch(`${uploadBaseUrl}/upload/${sessionId}`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error(`Upload failed with status ${response.status}`);
-
-      const result = await response.json();
-      addConsoleEntry('incoming', `File uploaded successfully`, result, '✅', 'system');
-      addSystemMessage(`File ${file.name} uploaded successfully.`);
-
-      // Send a message to the agent about the uploaded file
-      const gcsUri = result.gcs_uri;
-      const notification = `I have uploaded a document: ${file.name}. You can access it at ${gcsUri}. Please process it as per requirements.`;
-      
-      // Add user bubble for the upload message (optional, but helps user see what happened)
-      const userBubble = createMessageBubble(`Uploaded document: ${file.name}`, true, false);
-      messagesDiv.appendChild(userBubble);
-      scrollToBottom();
-
-      sendMessage(notification);
-      
-    } catch (err) {
-      console.error("Upload error:", err);
-      addConsoleEntry('error', 'Upload Error', { message: err.message }, '⚠️', 'system');
-      addSystemMessage(`Error uploading ${file.name}: ${err.message}`);
-    } finally {
-      attachFileButton.disabled = false;
-      fileInput.value = ""; // Reset for next upload
-    }
-  });
-}

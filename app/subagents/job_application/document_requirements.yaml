@@ -3,7 +3,7 @@ document_requirements:
     status: "Mandatory"
     description: "Required for identity verification and to support the PAN number provided in personal details."
   - document_type: "Salary slip"
-    status: "Mandatory"
+    status: "Optional"
     description: "Multiple months (e.g., SEP, OCT, NOV) are required to verify previous/current compensation."
   - document_type: "Resume"
     status: "Mandatory"

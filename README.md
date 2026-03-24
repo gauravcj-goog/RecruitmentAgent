@@ -70,7 +70,7 @@ Create an `app/.env` file with the following critical variables:
 # Core Configuration
 GOOGLE_CLOUD_PROJECT=learn-361304
 GOOGLE_CLOUD_LOCATION=us-central1 # Model location for Native Audio
-DEMO_AGENT_MODEL=gemini-live-2.5-flash-native-audio
+DEMO_AGENT_MODEL=gemini-2.5-flash
 
 # Vertex AI Search
 DATA_STORE_ID=recruitment-policies-ds
@@ -89,7 +89,7 @@ gcloud run deploy recruitment-agent-backend \
   --source . \
   --region asia-south1 \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,DEMO_AGENT_MODEL=gemini-live-2.5-flash-native-audio,GOOGLE_CLOUD_PROJECT=learn-361304,GOOGLE_CLOUD_LOCATION=us-central1,DATA_STORE_ID=recruitment-policies-ds,SEARCH_LOCATION=global,ALLOWED_ORIGINS="*"
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,DEMO_AGENT_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=learn-361304,GOOGLE_CLOUD_LOCATION=us-central1,DATA_STORE_ID=recruitment-policies-ds,SEARCH_LOCATION=global,ALLOWED_ORIGINS="*"
 ```
 
 **Deploy the Frontend:**

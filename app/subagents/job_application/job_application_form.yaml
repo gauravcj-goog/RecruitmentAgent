@@ -21,6 +21,13 @@ jaf1_pre_offer_document:
         course_start_date: "date"
         course_end_date: "date"
 
+  employment_details:
+    employment_history:
+      - company_name: "string"
+        designation: "string"
+        start_date: "date"
+        end_date: "date"
+
   additional_details:
     relative_working_in_axis_bank: "boolean"
     previously_worked_with_axis_bank: "boolean"

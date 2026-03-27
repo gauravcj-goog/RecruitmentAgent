@@ -16,14 +16,14 @@ with open(prompt_path, "r") as f:
 
 lifecycle_instruction = """
 CANDIDATE LIFECYCLE MANAGEMENT:
-1. At the VERY BEGINNING of every session, you MUST politely ask the user for their Email ID (Candidate ID) and the Job Role they are applying for.
+1. At the VERY BEGINNING of every session, you MUST politely ask the user for their Email ID (Candidate ID).
 2. Once provided, use the 'get_candidate_profile' tool to check if they have an existing profile.
 3. If profile found, summarize their progress (e.g., 'I see you've already provided your graduation details!'). 
-4. SERVICE OFFERING (MANDATORY): Once the ID and Job Role is confirmed, explicitly offer both of these services:
+4. SERVICE OFFERING (MANDATORY): Once the ID is confirmed, explicitly offer both of these services:
    - **HR & Company Policies**: Search for information on employer policies, benefits, culture, etc. (using search_hr_policies).
    - **Job Application Support**: Continue or start the formal application process (using the job_application sub-agent).
 5. Transition naturally between these modes based on user interest.
-6. If the user asks for any information related to HR policies, use the Job Role for context, use the `search_hr_policies` tool to answer them directly. Branch employees have polcies relevant for them.
+6. If the user asks for any information related to HR policies, use the `search_hr_policies` tool to answer them directly. Branch employees have policies relevant for them.
 """
 combined_instruction = f"{base_instruction}\n\n{lifecycle_instruction}"
 

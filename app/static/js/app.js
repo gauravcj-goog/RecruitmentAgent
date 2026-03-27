@@ -26,6 +26,9 @@ class PortalApp {
         this.profilePane = document.getElementById('profile-pane');
         this.profileEmailInput = document.getElementById('profile-email-input');
         this.profileContent = document.getElementById('profile-content');
+        this.splitProfileContent = document.getElementById('split-profile-content');
+        this.splitProfileWrapper = document.getElementById('split-profile-wrapper');
+        this.chatLeftSection = document.getElementById('chat-left-section');
         
         this.init();
     }
@@ -56,10 +59,105 @@ class PortalApp {
     }
 
     appendMessage(text, role) {
+        const msgWrapper = document.createElement('div');
+        msgWrapper.style.display = 'flex';
+        msgWrapper.style.flexDirection = 'column';
+        msgWrapper.style.alignItems = role === 'user' ? 'flex-end' : 'flex-start';
+        msgWrapper.style.width = '100%';
+        msgWrapper.style.marginBottom = '0.5rem';
+
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role}`;
-        msgDiv.innerText = text;
-        this.chatWindow.appendChild(msgDiv);
+        msgDiv.style.width = '100%';
+        msgDiv.style.marginBottom = '0';
+        
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.innerText = text;
+        
+        msgDiv.appendChild(bubble);
+        msgWrapper.appendChild(msgDiv);
+        this.chatWindow.appendChild(msgWrapper);
+        
+        if (role === 'bot') {
+            const textLower = text.toLowerCase();
+            const isSummary = textLower.includes('summary') || textLower.includes('these details') || textLower.includes('captured') || textLower.includes('correct?');
+            
+            if (!isSummary) {
+                const lastSentence = textLower.split('.').pop() || textLower;
+                const askingGender = lastSentence.includes('gender') && lastSentence.includes('?');
+                if (askingGender) {
+                    const btnContainer = document.createElement('div');
+                    btnContainer.className = 'quick-replies';
+                    btnContainer.style = 'margin-top: 0.25rem; margin-bottom: 1rem; display: flex; flex-direction: column; width: 100%; gap: 0.5rem; max-width: 80%;';
+                    
+                    ['Male', 'Female', 'Other'].forEach(opt => {
+                        const btn = document.createElement('button');
+                        btn.innerText = opt;
+                        btn.className = 'btn-send';
+                        btn.style = 'padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 0.9rem; background-color: var(--primary-color); border: 1px solid var(--primary-color); color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
+                        btn.onmouseover = () => btn.style.opacity = '0.85';
+                        btn.onmouseout = () => btn.style.opacity = '1';
+                        btn.onclick = () => {
+                            this.handleSendMessage(opt);
+                            btnContainer.style.display = 'none';
+                        };
+                        btnContainer.appendChild(btn);
+                    });
+                    msgWrapper.appendChild(btnContainer);
+                } 
+                else {
+                    const askingBoolean = 
+                        textLower.includes('relative') ||
+                        textLower.includes('worked with axis') || 
+                        textLower.includes('vendor') ||
+                        textLower.includes('outsourced') ||
+                        textLower.includes('background verification') ||
+                        textLower.includes('bgv') ||
+                        textLower.includes('credit info') ||
+                        textLower.includes('experian') ||
+                        textLower.includes('declaration') ||
+                        textLower.includes('deposit paid') ||
+                        textLower.includes('terms and conditions') ||
+                        textLower.includes('different name') ||
+                        textLower.includes('yes or no') ||
+                        textLower.includes('(yes/no)');
+                        
+                    if (askingBoolean && textLower.includes('?')) {
+                        const btnContainer = document.createElement('div');
+                        btnContainer.className = 'quick-replies';
+                        btnContainer.style = 'margin-top: 0.25rem; margin-bottom: 1rem; display: flex; width: 100%; gap: 0.75rem; max-width: 80%;';
+                        
+                        const yesBtn = document.createElement('button');
+                        yesBtn.innerText = 'Yes';
+                        yesBtn.className = 'btn-send';
+                        yesBtn.style = 'flex: 1; padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; background-color: #2e7d32; border: 1px solid #2e7d32; color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
+                        yesBtn.onmouseover = () => yesBtn.style.opacity = '0.85';
+                        yesBtn.onmouseout = () => yesBtn.style.opacity = '1';
+                        yesBtn.onclick = () => {
+                            this.handleSendMessage('Yes');
+                            btnContainer.style.display = 'none';
+                        }
+
+                        const noBtn = document.createElement('button');
+                        noBtn.innerText = 'No';
+                        noBtn.className = 'btn-send';
+                        noBtn.style = 'flex: 1; padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; background-color: #c62828; border: 1px solid #c62828; color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
+                        noBtn.onmouseover = () => noBtn.style.opacity = '0.85';
+                        noBtn.onmouseout = () => noBtn.style.opacity = '1';
+                        noBtn.onclick = () => {
+                            this.handleSendMessage('No');
+                            btnContainer.style.display = 'none';
+                        }
+
+                        btnContainer.appendChild(yesBtn);
+                        btnContainer.appendChild(noBtn);
+                        msgWrapper.appendChild(btnContainer);
+                    }
+                }
+            }
+        }
+        
         this.chatWindow.scrollTop = this.chatWindow.scrollHeight;
     }
 
@@ -67,13 +165,17 @@ class PortalApp {
         this.typingIndicator.style.display = show ? 'block' : 'none';
     }
 
-    async handleSendMessage() {
-        const text = this.userInput.value.trim();
+    async handleSendMessage(forcedText = null) {
+        const text = forcedText !== null ? forcedText : this.userInput.value.trim();
         if (!text) return;
 
         this.appendMessage(text, 'user');
-        this.userInput.value = '';
+        if (forcedText === null) {
+            this.userInput.value = '';
+        }
         this.showTyping(true);
+
+        this.detectEmail(text); // auto fetch profile if email is provided by user
 
         try {
             const response = await fetch(`${this.apiBase}/api/chat`, {
@@ -91,6 +193,10 @@ class PortalApp {
 
             if (data.response) {
                 this.appendMessage(data.response, 'bot');
+                const emailFound = this.detectEmail(data.response); // auto fetch profile if email is mentioned by bot
+                if (!emailFound && this.currentProfileEmail) {
+                    this.autoFetchProfile(this.currentProfileEmail);
+                }
             } else if (data.error) {
                 this.appendMessage(`System Error: ${data.error}`, 'bot');
             }
@@ -149,6 +255,10 @@ class PortalApp {
             this.showTyping(false);
             if (data.response) {
                 this.appendMessage(data.response, 'bot');
+                const emailFound = this.detectEmail(data.response);
+                if (!emailFound && this.currentProfileEmail) {
+                    this.autoFetchProfile(this.currentProfileEmail);
+                }
             }
         } catch (error) {
             console.error("Hidden Message Error", error);
@@ -188,7 +298,7 @@ class PortalApp {
                 this.profileContent.innerHTML = '<div style="text-align: center; padding: 2rem;">No profile found for this email.</div>';
             } else {
                 this.currentProfileEmail = email;
-                this.renderProfile(data.jaf1_pre_offer_document);
+                this.renderProfile(data.jaf1_pre_offer_document, this.profileContent, true);
             }
         } catch (error) {
             console.error("Fetch Profile Error", error);
@@ -196,7 +306,46 @@ class PortalApp {
         }
     }
 
-    renderProfile(jaf) {
+    detectEmail(text) {
+        const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/i;
+        const match = text.match(emailRegex);
+        if (match && match[1]) {
+            this.autoFetchProfile(match[1]);
+            return true;
+        }
+        return false;
+    }
+
+    async autoFetchProfile(email) {
+        this.splitProfileWrapper.style.maxWidth = '40%';
+        this.splitProfileWrapper.style.opacity = '1';
+        if (this.chatLeftSection) this.chatLeftSection.style.maxWidth = '60%';
+        
+        if (!this.currentProfileEmail) {
+            this.splitProfileContent.innerHTML = '<div style="text-align: center; padding: 2rem;">Fetching Candidate Profile...</div>';
+        }
+
+        try {
+            const response = await fetch(`${this.apiBase}/api/candidate/${email}`);
+            const data = await response.json();
+
+            if (data.error || !data.jaf1_pre_offer_document || Object.keys(data.jaf1_pre_offer_document).length === 0) {
+                if (!this.currentProfileEmail) {
+                    this.splitProfileContent.innerHTML = '<div style="text-align: center; color: #888; margin-top: 3rem;">No existing profile found or currently being updated... Provide email to link.</div>';
+                }
+            } else {
+                this.currentProfileEmail = email; 
+                this.renderProfile(data.jaf1_pre_offer_document, this.splitProfileContent, false);
+            }
+        } catch (error) {
+             console.error("Auto Fetch Error", error);
+             if (!this.currentProfileEmail) {
+                 this.splitProfileContent.innerHTML = '<div style="text-align: center; color: red; padding: 2rem;">Error fetching live profile.</div>';
+             }
+        }
+    }
+
+    renderProfile(jaf, targetContainer, showDelete = true) {
         let html = '';
 
         // Helper to format values (including booleans)
@@ -211,15 +360,28 @@ class PortalApp {
 
         // Personal Details
         if (jaf.personal_details) {
+            const preferredOrder = ['full_name', 'email_id', 'contact_number', 'pan_number', 'communication_address', 'permanent_address'];
+            const sortedKeys = Object.keys(jaf.personal_details).sort((a, b) => {
+                const idxA = preferredOrder.indexOf(a);
+                const idxB = preferredOrder.indexOf(b);
+                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                if (idxA !== -1) return -1;
+                if (idxB !== -1) return 1;
+                return 0; // maintain original for others
+            });
+
             html += `
                 <div class="profile-card">
                     <h3>Personal Details</h3>
-                    ${Object.entries(jaf.personal_details).map(([k, v]) => `
+                    ${sortedKeys.map((k) => {
+                        const v = jaf.personal_details[k];
+                        return `
                         <div class="detail-row">
                             <div class="detail-label">${this.formatLabel(k)}</div>
                             <div class="detail-value">${formatValue(v)}</div>
                         </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             `;
         }
@@ -279,6 +441,33 @@ class PortalApp {
             `;
         }
 
+        // Employment Details
+        if (jaf.employment_details && jaf.employment_details.employment_history && Array.isArray(jaf.employment_details.employment_history) && jaf.employment_details.employment_history.length > 0) {
+            // Sort from latest to first
+            const sortedEmployment = [...jaf.employment_details.employment_history].sort((a, b) => {
+                const dateA = a.end_date ? new Date(a.end_date) : new Date();
+                const dateB = b.end_date ? new Date(b.end_date) : new Date();
+                return dateB - dateA; // descending
+            });
+            
+            html += `
+                <div class="profile-card">
+                    <h3>Previous Employment</h3>
+                    ${sortedEmployment.map((emp, idx) => `
+                        <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
+                            <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Role ${idx + 1}: ${emp.designation || 'Position'}</h4>
+                            ${Object.entries(emp).map(([subK, subV]) => `
+                                <div class="detail-row">
+                                    <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
+                                    <div class="detail-value">${formatValue(subV)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
         // Uploaded Documents
         if (jaf.uploaded_documents && jaf.uploaded_documents.length > 0) {
             html += `
@@ -300,7 +489,7 @@ class PortalApp {
         }
 
         // Delete Action
-        if (this.currentProfileEmail) {
+        if (this.currentProfileEmail && showDelete) {
             html += `
                 <div class="profile-actions">
                     <button onclick="app.handleDeleteProfile('${this.currentProfileEmail}')" class="btn-delete">Delete This Profile</button>
@@ -308,7 +497,7 @@ class PortalApp {
             `;
         }
 
-        this.profileContent.innerHTML = html || '<div style="text-align: center; padding: 2rem;">Profile found but no specific details captured yet.</div>';
+        targetContainer.innerHTML = html || '<div style="text-align: center; padding: 2rem;">Profile found but no specific details captured yet.</div>';
     }
 
     async handleDeleteProfile(email) {

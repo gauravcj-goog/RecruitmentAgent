@@ -34,16 +34,7 @@ class PortalApp {
     }
 
     getApiBase() {
-        // 1. Try modern window.CONFIG
-        if (window.CONFIG && window.CONFIG.BACKEND_URI) {
-            return window.CONFIG.BACKEND_URI.replace(/\/$/, "");
-        }
-        // 2. Try legacy window.APP_CONFIG and convert wss to https
-        if (window.APP_CONFIG && window.APP_CONFIG.BACKEND_URL) {
-            return window.APP_CONFIG.BACKEND_URL.replace("wss://", "https://").replace("ws://", "http://").replace(/\/$/, "");
-        }
-        // 3. Fallback to current origin (best for single-service architecture)
-        return window.location.origin;
+        return "https://recruitment-agent-backend-mumbai-787798151876.asia-south1.run.app";
     }
 
     init() {
@@ -73,85 +64,110 @@ class PortalApp {
         
         const bubble = document.createElement('div');
         bubble.className = 'bubble';
-        bubble.innerText = text;
+        
+        if (role === 'bot' && text.includes('[ADDITIONAL_DETAILS_FORM]')) {
+            bubble.innerText = text.replace('[ADDITIONAL_DETAILS_FORM]', 'Please fill out the additional details form below:');
+        } else {
+            bubble.innerText = text;
+        }
         
         msgDiv.appendChild(bubble);
         msgWrapper.appendChild(msgDiv);
         this.chatWindow.appendChild(msgWrapper);
         
         if (role === 'bot') {
-            const textLower = text.toLowerCase();
-            const isSummary = textLower.includes('summary') || textLower.includes('these details') || textLower.includes('captured') || textLower.includes('correct?');
-            
-            if (!isSummary) {
-                const lastSentence = textLower.split('.').pop() || textLower;
-                const askingGender = lastSentence.includes('gender') && lastSentence.includes('?');
-                if (askingGender) {
-                    const btnContainer = document.createElement('div');
-                    btnContainer.className = 'quick-replies';
-                    btnContainer.style = 'margin-top: 0.25rem; margin-bottom: 1rem; display: flex; flex-direction: column; width: 100%; gap: 0.5rem; max-width: 80%;';
-                    
-                    ['Male', 'Female', 'Other'].forEach(opt => {
-                        const btn = document.createElement('button');
-                        btn.innerText = opt;
-                        btn.className = 'btn-send';
-                        btn.style = 'padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 0.9rem; background-color: var(--primary-color); border: 1px solid var(--primary-color); color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
-                        btn.onmouseover = () => btn.style.opacity = '0.85';
-                        btn.onmouseout = () => btn.style.opacity = '1';
-                        btn.onclick = () => {
-                            this.handleSendMessage(opt);
-                            btnContainer.style.display = 'none';
-                        };
-                        btnContainer.appendChild(btn);
-                    });
-                    msgWrapper.appendChild(btnContainer);
-                } 
-                else {
-                    const askingBoolean = 
-                        textLower.includes('relative') ||
-                        textLower.includes('worked with axis') || 
-                        textLower.includes('vendor') ||
-                        textLower.includes('outsourced') ||
-                        textLower.includes('background verification') ||
-                        textLower.includes('bgv') ||
-                        textLower.includes('credit info') ||
-                        textLower.includes('experian') ||
-                        textLower.includes('declaration') ||
-                        textLower.includes('deposit paid') ||
-                        textLower.includes('terms and conditions') ||
-                        textLower.includes('different name') ||
-                        textLower.includes('yes or no') ||
-                        textLower.includes('(yes/no)');
+            if (text.includes('[ADDITIONAL_DETAILS_FORM]')) {
+                this.renderAdditionalDetailsForm(msgWrapper);
+            } else {
+                const textLower = text.toLowerCase();
+                const isSummary = textLower.includes('summary') || textLower.includes('these details') || textLower.includes('captured') || textLower.includes('correct?');
+                
+                if (!isSummary) {
+                    const hasQuestionMark = textLower.includes('?');
+    
+                    const askingIntent = hasQuestionMark && (
+                        (textLower.includes('job application') && (textLower.includes('hr') || textLower.includes('polic'))) ||
+                        (textLower.includes('application') && (textLower.includes('hr ') || textLower.includes('polic')))
+                    );
+    
+                    const askingGender = hasQuestionMark && textLower.includes('gender');
+    
+                    const askingBoolean = hasQuestionMark && (
+                            textLower.includes('relative') ||
+                            textLower.includes('worked with axis') || 
+                            textLower.includes('vendor') ||
+                            textLower.includes('outsourced') ||
+                            textLower.includes('background verification') ||
+                            textLower.includes('bgv') ||
+                            textLower.includes('credit info') ||
+                            textLower.includes('experian') ||
+                            textLower.includes('declaration') ||
+                            textLower.includes('deposit paid') ||
+                            textLower.includes('terms and conditions') ||
+                            textLower.includes('different name') ||
+                            textLower.includes('yes or no') ||
+                            textLower.includes('(yes/no)')
+                    );
+    
+                    if (askingIntent) {
+                        const btnContainer = document.createElement('div');
+                        btnContainer.className = 'quick-replies';
+                        btnContainer.style = 'margin-top: 0.25rem; margin-bottom: 1rem; display: flex; flex-direction: column; width: 100%; gap: 0.5rem; max-width: 80%;';
                         
-                    if (askingBoolean && textLower.includes('?')) {
+                        ['Job Application', 'HR & Policy Help'].forEach(opt => {
+                            const btn = document.createElement('button');
+                            btn.innerText = opt;
+                            btn.className = 'btn-send';
+                            btn.style = 'padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 0.9rem; background-color: var(--primary-color); border: 1px solid var(--primary-color); color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
+                            btn.onmouseover = () => btn.style.opacity = '0.85';
+                            btn.onmouseout = () => btn.style.opacity = '1';
+                            btn.onclick = () => {
+                                this.handleSendMessage(opt);
+                                btnContainer.style.display = 'none';
+                            };
+                            btnContainer.appendChild(btn);
+                        });
+                        msgWrapper.appendChild(btnContainer);
+                    } else if (askingGender) {
+                        const btnContainer = document.createElement('div');
+                        btnContainer.className = 'quick-replies';
+                        btnContainer.style = 'margin-top: 0.25rem; margin-bottom: 1rem; display: flex; flex-direction: column; width: 100%; gap: 0.5rem; max-width: 80%;';
+                        
+                        ['Male', 'Female', 'Other'].forEach(opt => {
+                            const btn = document.createElement('button');
+                            btn.innerText = opt;
+                            btn.className = 'btn-send';
+                            btn.style = 'padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 0.9rem; background-color: var(--primary-color); border: 1px solid var(--primary-color); color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
+                            btn.onmouseover = () => btn.style.opacity = '0.85';
+                            btn.onmouseout = () => btn.style.opacity = '1';
+                            btn.onclick = () => {
+                                this.handleSendMessage(opt);
+                                btnContainer.style.display = 'none';
+                            };
+                            btnContainer.appendChild(btn);
+                        });
+                        msgWrapper.appendChild(btnContainer);
+                    } else if (askingBoolean) {
                         const btnContainer = document.createElement('div');
                         btnContainer.className = 'quick-replies';
                         btnContainer.style = 'margin-top: 0.25rem; margin-bottom: 1rem; display: flex; width: 100%; gap: 0.75rem; max-width: 80%;';
                         
-                        const yesBtn = document.createElement('button');
-                        yesBtn.innerText = 'Yes';
-                        yesBtn.className = 'btn-send';
-                        yesBtn.style = 'flex: 1; padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; background-color: #2e7d32; border: 1px solid #2e7d32; color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
-                        yesBtn.onmouseover = () => yesBtn.style.opacity = '0.85';
-                        yesBtn.onmouseout = () => yesBtn.style.opacity = '1';
-                        yesBtn.onclick = () => {
-                            this.handleSendMessage('Yes');
-                            btnContainer.style.display = 'none';
-                        }
-
-                        const noBtn = document.createElement('button');
-                        noBtn.innerText = 'No';
-                        noBtn.className = 'btn-send';
-                        noBtn.style = 'flex: 1; padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; background-color: #c62828; border: 1px solid #c62828; color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;';
-                        noBtn.onmouseover = () => noBtn.style.opacity = '0.85';
-                        noBtn.onmouseout = () => noBtn.style.opacity = '1';
-                        noBtn.onclick = () => {
-                            this.handleSendMessage('No');
-                            btnContainer.style.display = 'none';
-                        }
-
-                        btnContainer.appendChild(yesBtn);
-                        btnContainer.appendChild(noBtn);
+                        const createBoolBtn = (text, bgColor) => {
+                            const btn = document.createElement('button');
+                            btn.innerText = text;
+                            btn.className = 'btn-send';
+                            btn.style = `flex: 1; padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; background-color: ${bgColor}; border: 1px solid ${bgColor}; color: white; cursor: pointer; text-align: center; transition: opacity 0.2s;`;
+                            btn.onmouseover = () => btn.style.opacity = '0.85';
+                            btn.onmouseout = () => btn.style.opacity = '1';
+                            btn.onclick = () => {
+                                this.handleSendMessage(text);
+                                btnContainer.style.display = 'none';
+                            };
+                            return btn;
+                        };
+    
+                        btnContainer.appendChild(createBoolBtn('Yes', '#2e7d32'));
+                        btnContainer.appendChild(createBoolBtn('No', '#c62828'));
                         msgWrapper.appendChild(btnContainer);
                     }
                 }
@@ -159,6 +175,124 @@ class PortalApp {
         }
         
         this.chatWindow.scrollTop = this.chatWindow.scrollHeight;
+    }
+
+    renderAdditionalDetailsForm(container) {
+        const formContainer = document.createElement('div');
+        formContainer.className = 'chat-form-container';
+        formContainer.style = 'margin-top: 0.5rem; padding: 1rem; background: rgba(255, 255, 255, 0.05); border-radius: 8px; width: 100%; max-width: 80%; border: 1px solid rgba(255, 255, 255, 0.1);';
+        
+        const form = document.createElement('form');
+        form.id = 'chat-additional-details-form';
+        
+        const fields = [
+            { key: 'relative_working_in_axis_bank', label: 'Relative working in Axis Bank?' },
+            { key: 'previously_worked_with_axis_bank', label: 'Previously worked with Axis Bank?' },
+            { key: 'currently_working_past_year_via_vendor', label: 'Currently working past year via vendor?' },
+            { key: 'consent_bgv_partners', label: 'Unconditional consent for background verification?' },
+            { key: 'consent_credit_information', label: 'Consent to receive credit info from Experian?' },
+            { key: 'declaration_no_monetary_contribution', label: 'Declaration regarding no money/deposit paid?' },
+            { key: 'terms_and_conditions_accepted', label: 'Terms and conditions accepted?' }
+        ];
+        
+        fields.forEach(field => {
+            const row = document.createElement('div');
+            row.style = 'margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.5rem;';
+            
+            const label = document.createElement('label');
+            label.innerText = field.label;
+            label.style = 'font-size: 0.9rem; color: #fff; flex: 1;';
+            
+            const toggleContainer = document.createElement('div');
+            toggleContainer.style = 'display: flex; gap: 1rem;';
+            
+            const createRadio = (val, text) => {
+                const lbl = document.createElement('label');
+                lbl.style = 'font-size: 0.85rem; color: #fff; display: flex; align-items: center; gap: 0.25rem; cursor: pointer;';
+                const input = document.createElement('input');
+                input.type = 'radio';
+                input.name = field.key;
+                input.value = val;
+                input.required = true;
+                lbl.appendChild(input);
+                lbl.appendChild(document.createTextNode(text));
+                return lbl;
+            };
+            
+            toggleContainer.appendChild(createRadio('true', 'Yes'));
+            toggleContainer.appendChild(createRadio('false', 'No'));
+            
+            row.appendChild(label);
+            row.appendChild(toggleContainer);
+            form.appendChild(row);
+        });
+        
+        const submitBtn = document.createElement('button');
+        submitBtn.innerText = 'Submit Responses';
+        submitBtn.className = 'btn-send';
+        submitBtn.style = 'margin-top: 1rem; width: 100%;';
+        submitBtn.type = 'button';
+        submitBtn.onclick = () => this.submitChatAdditionalDetails(form, formContainer);
+        
+        form.appendChild(submitBtn);
+        formContainer.appendChild(form);
+        container.appendChild(formContainer);
+    }
+
+    async submitChatAdditionalDetails(form, container) {
+        const formData = new FormData(form);
+        const data = {};
+        
+        const fields = [
+            'relative_working_in_axis_bank',
+            'previously_worked_with_axis_bank',
+            'currently_working_past_year_via_vendor',
+            'consent_bgv_partners',
+            'consent_credit_information',
+            'declaration_no_monetary_contribution',
+            'terms_and_conditions_accepted'
+        ];
+        
+        let allFilled = true;
+        fields.forEach(field => {
+            const value = formData.get(field);
+            if (value === null) {
+                allFilled = false;
+            } else {
+                data[field] = value === 'true';
+            }
+        });
+        
+        if (!allFilled) {
+            alert("Please answer all questions before submitting.");
+            return;
+        }
+        
+        console.log("Submitting chat additional details:", data);
+        
+        try {
+            const response = await fetch(`${this.apiBase}/api/candidate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: this.currentProfileEmail,
+                    data: { additional_details: data }
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.message) {
+                container.innerHTML = '<div style="text-align: center; color: #38bdf8; padding: 1rem;">Responses submitted successfully!</div>';
+                // Notify the agent
+                this.handleSendMessage("I have submitted the additional details form.");
+            } else {
+                alert(`Error: ${result.error || 'Failed to update details'}`);
+            }
+        } catch (error) {
+            console.error("Submit Details Error", error);
+            alert("Failed to submit details due to network error.");
+        }
     }
 
     showTyping(show) {
@@ -340,9 +474,42 @@ class PortalApp {
         } catch (error) {
              console.error("Auto Fetch Error", error);
              if (!this.currentProfileEmail) {
-                 this.splitProfileContent.innerHTML = '<div style="text-align: center; color: red; padding: 2rem;">Error fetching live profile.</div>';
+                            this.splitProfileContent.innerHTML = '<div style="text-align: center; color: red; padding: 2rem;">Error fetching live profile.</div>';
              }
         }
+    }
+
+    getVerificationIcon(field_name, obj) {
+        if (!obj) return '';
+        
+        let status = obj[field_name];
+        if (!status && obj[field_name + "_status"]) {
+            status = obj[field_name + "_status"];
+        }
+        
+        if (status === 'verified') {
+            return '<span style="color: #2e7d32; margin-left: 0.5rem;" title="Verified">&#10004;</span>';
+        } else if (status === 'mismatch') {
+            return '<span style="color: #c62828; margin-left: 0.5rem;" title="Mismatch">&#9888;</span>';
+        }
+        return '';
+    }
+
+    getEntityVerificationIcon(obj) {
+        if (!obj) return '';
+        
+        // Collect all status values from keys ending with _status
+        const statuses = Object.entries(obj)
+            .filter(([k]) => k.endsWith('_status'))
+            .map(([, v]) => v);
+            
+        if (statuses.includes('mismatch')) {
+            return '<span style="color: #c62828; margin-left: 0.5rem;" title="Mismatch">&#9888;</span>';
+        }
+        if (statuses.includes('verified')) {
+            return '<span style="color: #2e7d32; margin-left: 0.5rem;" title="Verified">&#10004;</span>';
+        }
+        return '';
     }
 
     renderProfile(jaf, targetContainer, showDelete = true) {
@@ -359,132 +526,162 @@ class PortalApp {
         };
 
         // Personal Details
-        if (jaf.personal_details) {
-            const preferredOrder = ['full_name', 'email_id', 'contact_number', 'pan_number', 'communication_address', 'permanent_address'];
-            const sortedKeys = Object.keys(jaf.personal_details).sort((a, b) => {
-                const idxA = preferredOrder.indexOf(a);
-                const idxB = preferredOrder.indexOf(b);
-                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-                if (idxA !== -1) return -1;
-                if (idxB !== -1) return 1;
-                return 0; // maintain original for others
-            });
+        const seq = ["personal_details", "employment_details", "educational_details", "additional_details", "uploaded_documents"];
+        
+        seq.forEach(sectionKey => {
+            if (sectionKey === 'personal_details' && jaf.personal_details) {
+                const preferredOrder = ['full_name', 'email_id', 'contact_number', 'pan_number', 'communication_address', 'permanent_address'];
+                const sortedKeys = Object.keys(jaf.personal_details).sort((a, b) => {
+                    const idxA = preferredOrder.indexOf(a);
+                    const idxB = preferredOrder.indexOf(b);
+                    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                    if (idxA !== -1) return -1;
+                    if (idxB !== -1) return 1;
+                    return 0;
+                });
 
-            html += `
-                <div class="profile-card">
-                    <h3>Personal Details</h3>
-                    ${sortedKeys.map((k) => {
-                        const v = jaf.personal_details[k];
-                        return `
-                        <div class="detail-row">
-                            <div class="detail-label">${this.formatLabel(k)}</div>
-                            <div class="detail-value">${formatValue(v)}</div>
-                        </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-        }
-
-        // Educational Details
-        if (jaf.educational_details) {
-            html += `
-                <div class="profile-card">
-                    <h3>Educational Details</h3>
-                    ${(jaf.educational_details.education_history && Array.isArray(jaf.educational_details.education_history)) ? 
-                        jaf.educational_details.education_history.map((edu, idx) => `
-                            <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
-                                <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Qualification ${idx + 1}: ${edu.course || 'Degree'}</h4>
-                                ${Object.entries(edu).map(([subK, subV]) => `
+                html += `
+                    <details class="profile-card" open>
+                        <summary><h3>Personal Details</h3></summary>
+                        ${sortedKeys.map((k) => {
+                            const v = jaf.personal_details[k];
+                            return `
+                            <div class="detail-row">
+                                <div class="detail-label">${this.formatLabel(k)}</div>
+                                <div class="detail-value">
+                                    ${formatValue(v)}
+                                    ${this.getVerificationIcon(k, jaf.verification_status)}
+                                </div>
+                            </div>
+                            `;
+                        }).join('')}
+                    </details>
+                `;
+            } else if (sectionKey === 'employment_details' && jaf.employment_details && jaf.employment_details.employment_history && Array.isArray(jaf.employment_details.employment_history) && jaf.employment_details.employment_history.length > 0) {
+                const sortedEmployment = [...jaf.employment_details.employment_history].sort((a, b) => {
+                    const dateA = a.end_date ? new Date(a.end_date) : new Date();
+                    const dateB = b.end_date ? new Date(b.end_date) : new Date();
+                    return dateB - dateA;
+                });
+                
+                html += `
+                    <details class="profile-card">
+                        <summary><h3>Previous Employment</h3></summary>
+                        ${sortedEmployment.map((emp, idx) => `
+                            <div class="profile-section">
+                                <h4>Role ${idx + 1}: ${emp.designation || 'Position'} ${this.getEntityVerificationIcon(emp)}</h4>
+                                ${Object.entries(emp).filter(([subK]) => !subK.endsWith('_status')).map(([subK, subV]) => `
+                                    <div class="detail-row">
+                                        <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
+                                        <div class="detail-value">
+                                            ${formatValue(subV)}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `).join('')}
+                    </details>
+                `;
+            } else if (sectionKey === 'educational_details' && jaf.educational_details) {
+                html += `
+                    <details class="profile-card">
+                        <summary><h3>Educational Details</h3></summary>
+                        ${(jaf.educational_details.education_history && Array.isArray(jaf.educational_details.education_history)) ? 
+                            jaf.educational_details.education_history.map((edu, idx) => `
+                                <div class="profile-section">
+                                    <h4>Qualification ${idx + 1}: ${edu.course || 'Degree'} ${this.getEntityVerificationIcon(edu)}</h4>
+                                    ${Object.entries(edu).filter(([subK]) => !subK.endsWith('_status')).map(([subK, subV]) => `
+                                        <div class="detail-row">
+                                            <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
+                                            <div class="detail-value">
+                                                ${formatValue(subV)}
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `).join('') : ''}
+                        
+                        ${jaf.educational_details.graduation_details && typeof jaf.educational_details.graduation_details === 'object' ? `
+                            <div class="profile-section">
+                                <h4>Graduation Details</h4>
+                                ${Object.entries(jaf.educational_details.graduation_details).filter(([subK]) => !subK.endsWith('_status')).map(([subK, subV]) => `
                                     <div class="detail-row">
                                         <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
                                         <div class="detail-value">${formatValue(subV)}</div>
                                     </div>
                                 `).join('')}
                             </div>
-                        `).join('') : ''}
-                    
-                    ${jaf.educational_details.graduation_details && typeof jaf.educational_details.graduation_details === 'object' ? `
-                        <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
-                            <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Graduation Details</h4>
-                            ${Object.entries(jaf.educational_details.graduation_details).map(([subK, subV]) => `
-                                <div class="detail-row">
-                                    <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
-                                    <div class="detail-value">${formatValue(subV)}</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
+                        ` : ''}
 
-                    ${Object.entries(jaf.educational_details).filter(([k]) => k !== 'education_history' && k !== 'graduation_details').map(([k, v]) => `
-                        <div class="detail-row">
-                            <div class="detail-label">${this.formatLabel(k)}</div>
-                            <div class="detail-value">${formatValue(v)}</div>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
-
-        // Additional Details
-        if (jaf.additional_details) {
-            html += `
-                <div class="profile-card">
-                    <h3>Additional Details</h3>
-                    ${Object.entries(jaf.additional_details).map(([k, v]) => `
-                        <div class="detail-row">
-                            <div class="detail-label">${this.formatLabel(k)}</div>
-                            <div class="detail-value">${formatValue(v)}</div>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
-
-        // Employment Details
-        if (jaf.employment_details && jaf.employment_details.employment_history && Array.isArray(jaf.employment_details.employment_history) && jaf.employment_details.employment_history.length > 0) {
-            // Sort from latest to first
-            const sortedEmployment = [...jaf.employment_details.employment_history].sort((a, b) => {
-                const dateA = a.end_date ? new Date(a.end_date) : new Date();
-                const dateB = b.end_date ? new Date(b.end_date) : new Date();
-                return dateB - dateA; // descending
-            });
-            
-            html += `
-                <div class="profile-card">
-                    <h3>Previous Employment</h3>
-                    ${sortedEmployment.map((emp, idx) => `
-                        <div style="margin: 1rem 0; padding: 1rem; background: rgba(0,74,153,0.03); border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;">
-                            <h4 style="margin-top: 0; color: var(--secondary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">Role ${idx + 1}: ${emp.designation || 'Position'}</h4>
-                            ${Object.entries(emp).map(([subK, subV]) => `
-                                <div class="detail-row">
-                                    <div class="detail-label" style="font-size: 0.85rem;">${this.formatLabel(subK)}</div>
-                                    <div class="detail-value">${formatValue(subV)}</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
-
-        // Uploaded Documents
-        if (jaf.uploaded_documents && jaf.uploaded_documents.length > 0) {
-            html += `
-                <div class="profile-card">
-                    <h3>Uploaded Documents</h3>
-                    <ul class="doc-list">
-                        ${jaf.uploaded_documents.map(doc => `
-                            <li class="doc-item">
-                                <div>
-                                    <strong style="color: var(--secondary);">${doc.type}</strong><br>
-                                    <small style="color: #666;">${doc.document_name}</small>
-                                </div>
-                                <a href="${this.apiBase}/api/download?uri=${encodeURIComponent(doc.document_link)}" class="btn-download" download>Download</a>
-                            </li>
+                        ${Object.entries(jaf.educational_details).filter(([k]) => k !== 'education_history' && k !== 'graduation_details').map(([k, v]) => `
+                            <div class="detail-row">
+                                <div class="detail-label">${this.formatLabel(k)}</div>
+                                <div class="detail-value">${formatValue(v)}</div>
+                            </div>
                         `).join('')}
-                    </ul>
-                </div>
+                    </details>
+                `;
+            } else if (sectionKey === 'additional_details' && jaf.additional_details) {
+                if (!showDelete) {
+                    // Render interactive form for Live Profile
+                    html += `
+                        <details class="profile-card">
+                            <summary><h3>Additional Details</h3></summary>
+                            <form id="additional-details-form" class="additional-details-form">
+                                ${Object.entries(jaf.additional_details).map(([k, v]) => `
+                                    <div class="form-check" style="margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                        <input type="checkbox" id="chk-${k}" name="${k}" ${v === true || v === 'Yes' ? 'checked' : ''} style="width: auto;">
+                                        <label for="chk-${k}" style="font-weight: normal; color: #fff;">${this.formatLabel(k)}</label>
+                                    </div>
+                                `).join('')}
+                                <button type="button" onclick="app.submitAdditionalDetails()" class="btn-submit-form" style="margin-top: 1rem; width: 100%;">Submit Responses</button>
+                            </form>
+                        </details>
+                    `;
+                } else {
+                    // Render standard readonly view for Candidate Profile tab
+                    html += `
+                        <details class="profile-card">
+                            <summary><h3>Additional Details</h3></summary>
+                            ${Object.entries(jaf.additional_details).map(([k, v]) => `
+                                <div class="detail-row">
+                                    <div class="detail-label">${this.formatLabel(k)}</div>
+                                    <div class="detail-value">
+                                        ${formatValue(v)}
+                                        ${this.getVerificationIcon(k, jaf.verification_status)}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </details>
+                    `;
+                }
+            } else if (sectionKey === 'uploaded_documents' && jaf.uploaded_documents && jaf.uploaded_documents.length > 0) {
+                html += `
+                    <details class="profile-card">
+                        <summary><h3>Uploaded Documents</h3></summary>
+                        <ul class="doc-list">
+                            ${jaf.uploaded_documents.map(doc => `
+                                <li class="doc-item">
+                                    <div>
+                                        <strong style="color: var(--secondary);">${doc.type}</strong><br>
+                                        <small style="color: #666;">${doc.document_name}</small>
+                                    </div>
+                                    <a href="${this.apiBase}/api/download?uri=${encodeURIComponent(doc.document_link)}" class="btn-download" download>Download</a>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </details>
+                `;
+            }
+        });
+
+        // Recruiter Notes (Visible only on Candidate Profile tab)
+        if (showDelete && jaf.notes) {
+            html += `
+                <details class="profile-card">
+                    <summary><h3>Recruiter Notes</h3></summary>
+                    <div class="notes-content markdown-body" style="background: white; color: #333; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto;">${marked.parse(jaf.notes)}</div>
+                </details>
             `;
         }
 
@@ -521,6 +718,50 @@ class PortalApp {
         } catch (error) {
             console.error("Delete Profile Error", error);
             alert("Failed to delete profile due to network error.");
+        }
+    }
+
+    async submitAdditionalDetails() {
+        const form = document.getElementById('additional-details-form');
+        if (!form) return;
+
+        const data = {};
+        const inputs = form.querySelectorAll('input[type="checkbox"]');
+        inputs.forEach(input => {
+            data[input.name] = input.checked;
+        });
+
+        console.log("Submitting additional details:", data);
+
+        try {
+            const response = await fetch(`${this.apiBase}/api/candidate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: this.currentProfileEmail,
+                    data: {
+                        additional_details: data
+                    }
+                })
+            });
+            const result = await response.json();
+
+            if (result.message) {
+                alert("Additional details updated successfully!");
+                // Refresh profile
+                if (this.currentProfileEmail) {
+                    const response = await fetch(`${this.apiBase}/api/candidate/${this.currentProfileEmail}`);
+                    const updatedData = await response.json();
+                    this.renderProfile(updatedData, this.splitProfileContent, false);
+                }
+            } else {
+                alert(`Error: ${result.error || 'Failed to update details'}`);
+            }
+        } catch (error) {
+            console.error("Submit Details Error", error);
+            alert("Failed to submit details due to network error.");
         }
     }
 

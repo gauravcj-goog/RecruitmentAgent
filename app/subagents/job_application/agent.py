@@ -41,14 +41,16 @@ def load_prompt():
 from tools.bigtable_tools import update_candidate_data, store_document_link, get_candidate_profile
 from tools.document_processor import extract_data_from_document
 from tools.vertex_search import search_hr_policies
+from subagents.recruiter_analyzer.agent import agent as recruiter_analyzer
 
 agent = Agent(
     name="job_application",
     description="Use this sub-agent to help candidates with job applications and process their documents.",
     model=os.getenv(
         "DEMO_AGENT_MODEL",
-        "gemini-2.5-flash"
+        "gemini-3.1-pro"
     ),
     instruction=load_prompt(),
+    sub_agents=[recruiter_analyzer],
     tools=[update_candidate_data, store_document_link, extract_data_from_document, get_candidate_profile, search_hr_policies],
 )

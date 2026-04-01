@@ -48,7 +48,7 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
 
     try:
         # Initialize GenAI Client
-        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-2.0-flash")
+        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-3.1-pro")
         if use_vertex:
             client = genai.Client(vertexai=True, project=project_id, location=location)
         else:
@@ -74,7 +74,7 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
         5. **SEQUENTIAL EDUCATION EXTRACTION**: Carefully identify EVERY educational qualification mentioned (e.g., 10th, 12th, Bachelor's, Master's, Certifications).
         6. **STRUCTURE**: Store multiple qualifications in the `educational_details.education_history` list sequentially.
         7. **CRITICAL**: If the document is a PAN Card or contains a PAN Number, ENSURE the 'pan_number' field in 'personal_details' is populated.
-        8. Focus especially on 'personal_details' and 'educational_details'.
+        8. **COMPREHENSIVE EXTRACTION**: Extract data for ALL sections defined in the schema: `personal_details`, `employment_details`, `educational_details`, and `additional_details`. Treat the document as the primary source of truth.
         """
 
         # Prepare the file part for Gemini
@@ -99,8 +99,63 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
         logger.error(f"Error extracting data from document: {e}")
         return {"error": str(e)}
 
+def generate_recruiter_analysis(gcs_uri: str) -> str:
+    """
+    Generates a recruiter analysis for the document at the given GCS URI.
+    """
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "false").lower() == "true"
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    
+    # Identify Mime Type
+    import mimetypes
+    mime_type, _ = mimetypes.guess_type(gcs_uri)
+    if not mime_type:
+        if gcs_uri.lower().endswith(".pdf"):
+            mime_type = "application/pdf"
+        elif gcs_uri.lower().endswith((".jpg", ".jpeg")):
+            mime_type = "image/jpeg"
+        elif gcs_uri.lower().endswith(".png"):
+            mime_type = "image/png"
+        else:
+            mime_type = "application/pdf" # Default fallback
+            
+    logger.info(f"Generating recruiter analysis for {gcs_uri} with mime_type {mime_type}")
+
+    try:
+        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-3.1-pro")
+        if use_vertex:
+            client = genai.Client(vertexai=True, project=project_id, location=location)
+        else:
+            client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+        schema_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "subagents", "recruiter_analyzer", "prompt.yaml")
+        import yaml
+        with open(schema_path, "r") as f:
+            prompt_data = yaml.safe_load(f)
+            prompt = prompt_data.get("instruction", "")
+
+        parts = [
+            types.Part.from_uri(file_uri=gcs_uri, mime_type=mime_type),
+            types.Part.from_text(text=prompt)
+        ]
+
+        response = client.models.generate_content(
+            model=model_id,
+            contents=parts,
+        )
+
+        return response.text
+    except Exception as e:
+        logger.error(f"Error generating recruiter analysis: {e}")
+        return f"Error: {e}"
+
 from google.adk.tools import FunctionTool
 
 extract_data_from_document_tool = FunctionTool(
     func=extract_data_from_document,
+)
+
+generate_recruiter_analysis_tool = FunctionTool(
+    func=generate_recruiter_analysis,
 )

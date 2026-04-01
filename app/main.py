@@ -102,6 +102,29 @@ async def chat(
             role="user"
         )
 
+        # Check for file upload message to force recruiter analysis
+        if "I have uploaded a document:" in message and "Its GCS URI is" in message:
+            import re
+            match = re.search(r"Its GCS URI is (gs://[^\s]+)", message)
+            if match:
+                gcs_uri = match.group(1)
+                logger.info(f"File upload detected in chat. Forcing recruiter analysis for {gcs_uri}")
+                
+                try:
+                    from tools.document_processor import generate_recruiter_analysis
+                    from tools.bigtable_tools import update_candidate_data
+                    
+                    # Generate analysis
+                    analysis = generate_recruiter_analysis(gcs_uri)
+                    logger.info(f"Analysis generated: {analysis[:50]}...")
+                    
+                    # Update BigTable with notes
+                    email = user_id # Assuming user_id is the email
+                    update_candidate_data(email, {"notes": analysis})
+                    logger.info(f"Updated candidate data with notes for {email}")
+                except Exception as e:
+                    logger.error(f"Error in forced recruiter analysis: {e}")
+
         # Run the agent
         logger.info("Starting runner.run_async...")
         responses = []
@@ -182,6 +205,22 @@ async def delete_candidate(email: str):
             return JSONResponse(status_code=500, content={"error": "Failed to delete profile from BigTable"})
     except Exception as e:
         logger.error(f"Error deleting candidate: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/candidate")
+async def update_candidate(email: str = Body(...), data: dict = Body(...)):
+    """Updates candidate profile in BigTable."""
+    logger.info(f"Updating profile for: {email}")
+    try:
+        from tools.bigtable_tools import update_candidate_data
+        import json
+        success = update_candidate_data(email, json.dumps(data))
+        if success:
+            return {"message": f"Successfully updated profile for {email}"}
+        else:
+            return JSONResponse(status_code=500, content={"error": "Failed to update profile in BigTable"})
+    except Exception as e:
+        logger.error(f"Error updating candidate: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/api/download")

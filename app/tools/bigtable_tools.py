@@ -47,6 +47,7 @@ def get_candidate_profile(candidate_id: str) -> str:
         profile = {
             "jaf1_pre_offer_document": {
                 "personal_details": {},
+                "employment_details": {"employment_history": []},
                 "educational_details": {"graduation_details": {}},
                 "additional_details": {},
                 "uploaded_documents": []
@@ -61,7 +62,12 @@ def get_candidate_profile(candidate_id: str) -> str:
                 # Most recent cell
                 val = cells[0].value.decode("utf-8")
                 
-                if name == "uploaded_documents":
+                if name.endswith("_status"):
+                    field_name = name[:-7]
+                    if "verification_status" not in jaf:
+                        jaf["verification_status"] = {}
+                    jaf["verification_status"][field_name] = val
+                elif name == "uploaded_documents":
                     try:
                         jaf["uploaded_documents"] = json.loads(val)
                     except:
@@ -71,17 +77,41 @@ def get_candidate_profile(candidate_id: str) -> str:
                         jaf["educational_details"] = json.loads(val)
                     except:
                         pass
+                elif name == "employment_details":
+                    try:
+                        jaf["employment_details"] = json.loads(val)
+                    except:
+                        pass
+                elif name == "notes":
+                    jaf["notes"] = val
                 elif name in PERSONAL_FIELDS:
                     # handle booleans if any
                     if val.lower() == "true": val = True
                     elif val.lower() == "false": val = False
                     jaf["personal_details"][name] = val
+                    # Default status to unverified if not explicitly saved
+                    if "verification_status" not in jaf:
+                        jaf["verification_status"] = {}
+                    if name not in jaf["verification_status"]:
+                        jaf["verification_status"][name] = "unverified"
                 elif name in ADDITIONAL_FIELDS:
                     # handle booleans
                     if val.lower() == "true": val = True
                     elif val.lower() == "false": val = False
                     jaf["additional_details"][name] = val
+                    if "verification_status" not in jaf:
+                        jaf["verification_status"] = {}
+                    if name not in jaf["verification_status"]:
+                        jaf["verification_status"][name] = "unverified"
                     
+        # Reorder keys in referenced sequence:
+        # Personal, Employment, Education, Additional, Uploaded Documents
+        seq = ["personal_details", "employment_details", "educational_details", "additional_details", "uploaded_documents", "verification_status"]
+        sorted_jaf = {}
+        for k in seq:
+            if k in jaf:
+                sorted_jaf[k] = jaf[k]
+        profile["jaf1_pre_offer_document"] = sorted_jaf
         return json.dumps(profile)
     except Exception as e:
         logger.error(f"Error fetching profile: {e}")
@@ -126,15 +156,39 @@ def update_candidate_data(candidate_id: str, data_json: str) -> str:
 
         # 2. Update Personal Details (Individual Cells)
         pd = new_jaf.get("personal_details", {})
+        existing_pd = existing_profile.get("personal_details", {})
+        existing_status = existing_profile.get("verification_status", {}) or {}
+
         for k, v in pd.items():
             if k in PERSONAL_FIELDS:
+                existing_val = existing_pd.get(k)
+                if existing_val is not None and existing_val != "":
+                    if str(v) == str(existing_val):
+                        status = "verified"
+                    else:
+                        status = "mismatch"
+                else:
+                    status = "unverified"
+                    
                 row.set_cell(family_id, k.encode("utf-8"), to_val(v).encode("utf-8"))
+                row.set_cell(family_id, (k + "_status").encode("utf-8"), status.encode("utf-8"))
         
         # 3. Update Additional Details (Individual Cells)
         ad = new_jaf.get("additional_details", {})
+        existing_ad = existing_profile.get("additional_details", {})
         for k, v in ad.items():
             if k in ADDITIONAL_FIELDS:
+                existing_val = existing_ad.get(k)
+                if existing_val is not None and existing_val != "":
+                    if str(v) == str(existing_val):
+                        status = "verified"
+                    else:
+                        status = "mismatch"
+                else:
+                    status = "unverified"
+                    
                 row.set_cell(family_id, k.encode("utf-8"), to_val(v).encode("utf-8"))
+                row.set_cell(family_id, (k + "_status").encode("utf-8"), status.encode("utf-8"))
         
         # 4. Update Educational Details (List-based additive merge)
         new_ed = new_jaf.get("educational_details")
@@ -162,9 +216,23 @@ def update_candidate_data(candidate_id: str, data_json: str) -> str:
                     # Merge existing entry if it's the same degree, filling gaps
                     key = get_edu_key(d)
                     if key in merged_hist_dict:
-                        merged_hist_dict[key].update({k: v for k, v in d.items() if v})
+                        existing_entry = merged_hist_dict[key]
+                        for k, v in d.items():
+                            if v:
+                                existing_val = existing_entry.get(k)
+                                if existing_val and existing_val != "N/A":
+                                    if str(v) == str(existing_val):
+                                        existing_entry[k + "_status"] = "verified"
+                                    else:
+                                        existing_entry[k + "_status"] = "mismatch"
+                                else:
+                                    existing_entry[k + "_status"] = "unverified"
+                                existing_entry[k] = v
                     else:
-                        merged_hist_dict[key] = d
+                        new_entry = {**d}
+                        for k in d.keys():
+                            new_entry[k + "_status"] = "unverified"
+                        merged_hist_dict[key] = new_entry
             
             final_ed = {"education_history": list(merged_hist_dict.values())}
             
@@ -181,7 +249,64 @@ def update_candidate_data(candidate_id: str, data_json: str) -> str:
             logger.info(f"Merged educational_details for {candidate_id}: {json.dumps(final_ed)}")
             row.set_cell(family_id, b"educational_details", json.dumps(final_ed).encode("utf-8"))
         
-        # 5. Update Uploaded Documents (JSON list - MERGE by document_link)
+        # 6. Update Notes (Dedicated Column)
+        notes = new_jaf.get("notes")
+        if notes:
+            row.set_cell(family_id, b"notes", notes.encode("utf-8"))
+            logger.info(f"Saved notes for {candidate_id}")
+        
+        # 5. Update Employment Details (List-based additive merge)
+        new_emp = new_jaf.get("employment_details")
+        existing_emp = existing_profile.get("employment_details", {})
+        if not isinstance(existing_emp, dict): existing_emp = {}
+        
+        if new_emp:
+            existing_hist = existing_emp.get("employment_history", [])
+            if not isinstance(existing_hist, list): existing_hist = []
+            
+            new_hist = new_emp.get("employment_history", [])
+            if not isinstance(new_hist, list): new_hist = []
+            
+            def get_emp_key(d):
+                if not isinstance(d, dict): return "invalid"
+                return f"{d.get('company_name', 'N/A').lower()}|{d.get('designation', 'N/A').lower()}|{d.get('start_date', 'N/A')}"
+
+            merged_hist_dict = {get_emp_key(d): d for d in existing_hist if isinstance(d, dict)}
+            for d in new_hist:
+                if isinstance(d, dict) and d.get("company_name") and d.get("designation"):
+                    key = get_emp_key(d)
+                    if key in merged_hist_dict:
+                        existing_entry = merged_hist_dict[key]
+                        for k, v in d.items():
+                            if v:
+                                existing_val = existing_entry.get(k)
+                                if existing_val and existing_val != "N/A":
+                                    if str(v) == str(existing_val):
+                                        existing_entry[k + "_status"] = "verified"
+                                    else:
+                                        existing_entry[k + "_status"] = "mismatch"
+                                else:
+                                    existing_entry[k + "_status"] = "unverified"
+                                existing_entry[k] = v
+                    else:
+                        new_entry = {**d}
+                        for k in d.keys():
+                            new_entry[k + "_status"] = "unverified"
+                        merged_hist_dict[key] = new_entry
+            
+            final_emp = {"employment_history": list(merged_hist_dict.values())}
+            
+            for k, v in existing_emp.items():
+                if k != "employment_history" and k not in final_emp:
+                    final_emp[k] = v
+            for k, v in new_emp.items():
+                if k != "employment_history":
+                    final_emp[k] = v
+            
+            logger.info(f"Merged employment_details for {candidate_id}: {json.dumps(final_emp)}")
+            row.set_cell(family_id, b"employment_details", json.dumps(final_emp).encode("utf-8"))
+
+        # 6. Update Uploaded Documents (JSON list - MERGE by document_link)
         new_docs = new_jaf.get("uploaded_documents")
         if new_docs:
             existing_docs = existing_profile.get("uploaded_documents", [])

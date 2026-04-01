@@ -1,0 +1,381 @@
+/* Custom properties for a cohesive Dark Mode palette */
+:root {
+  --bg-color: #0b1329; /* Deep navy/space black */
+  --card-bg: rgba(255, 255, 255, 0.03); /* Glassmorphism base */
+  --card-border: rgba(255, 255, 255, 0.08);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --accent-primary: #38bdf8; /* Sky blue glow */
+  --accent-secondary: #818cf8; /* Indigo glow */
+  --gradient-bg: linear-gradient(135deg, #0b1329 0%, #172554 100%);
+  --blur-effect: blur(16px);
+  --shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+  --font-family: 'Outfit', 'Inter', sans-serif;
+}
+
+body {
+  background: var(--gradient-bg);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: var(--card-bg);
+  backdrop-filter: var(--blur-effect);
+  -webkit-backdrop-filter: var(--blur-effect);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* Header */
+.header {
+  background: rgba(11, 19, 41, 0.7);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 2rem 2rem; /* Thicker header */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo {
+  height: 32px;
+  filter: drop-shadow(0 0 8px var(--accent-primary));
+}
+
+.portal-title {
+  font-weight: 700;
+  font-size: 1.5rem; /* Larger title */
+  letter-spacing: 1px;
+  background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Main Layout */
+.main-container {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  overflow: hidden;
+  gap: 1.5rem;
+  padding: 1.5rem;
+}
+
+/* Split Pane Layout */
+#chat-pane.active {
+  display: flex !important;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  gap: 1.5rem;
+}
+
+/* Left: Chat Container */
+#chat-left-section {
+  flex: 6; /* 60% */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Right: Live Profile Container */
+#split-profile-wrapper {
+  flex: 4; /* 40% */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 40% !important;
+  opacity: 1 !important; /* Force visible */
+}
+
+/* Chat Messages */
+.chat-window {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: var(--card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--card-border);
+}
+
+.message {
+  max-width: 75%;
+  padding: 0.875rem 1.25rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message.bot {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+
+.message.user {
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+/* Input Area */
+.input-area {
+  background: var(--card-bg);
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+input[type="text"] {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: rgba(0, 0, 0, 0.2);
+  color: white;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input[type="text"]:focus {
+  border-color: var(--accent-primary);
+}
+
+.btn-send {
+  background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s, filter 0.2s;
+}
+
+.btn-send:hover {
+  filter: brightness(1.1);
+}
+
+.btn-download {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.btn-download:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Profile Cards */
+.profile-card {
+  background: rgba(255, 255, 255, 0.02);
+  padding: 1.25rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 1rem;
+}
+
+.profile-card summary {
+  cursor: pointer;
+  outline: none;
+  list-style: none;
+}
+
+.profile-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.profile-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-top: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.profile-card[open] h3 {
+  margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 0.5rem;
+}
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.detail-label {
+  color: var(--text-secondary);
+}
+
+.detail-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Forms in Profile */
+.additional-details-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.form-check input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+}
+
+.btn-submit-form {
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  text-transform: uppercase;
+}
+
+.btn-submit-form:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Profile Header (Class instead of inline style) */
+.profile-header {
+  padding: 1rem 2rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.profile-header h3 {
+  margin: 0;
+  color: var(--accent-primary) !important; /* Ensure it uses accent color */
+}
+
+/* Candidate Profile Tab Scroll */
+#profile-pane {
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+/* Sidebar Navigation */
+.tabs-header {
+  display: flex;
+  flex-direction: column;
+  width: 250px;
+  background: rgba(255, 255, 255, 0.02);
+  border-right: 1px solid var(--card-border);
+  padding: 1rem;
+  gap: 0.5rem;
+  height: 100%;
+}
+
+.tab-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  color: white;
+  box-shadow: var(--shadow);
+}
+
+/* Tab Visibility */
+.tab-pane {
+  display: none !important;
+}
+.tab-pane.active {
+  display: flex !important;
+}
+
+/* Profile Sections (Individual sections inside cards) */
+.profile-section {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 4px solid var(--accent-primary);
+  border-radius: 0 8px 8px 0;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-left-width: 4px; /* Maintain thick left border */
+}
+
+.profile-section h4 {
+  margin-top: 0;
+  color: var(--accent-primary);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.75rem;
+}

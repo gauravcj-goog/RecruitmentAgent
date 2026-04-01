@@ -14,6 +14,8 @@ The Cymbal Bank Recruitment Assistant is a comprehensive AI solution for moderni
 -   **Multi-Format Document Support**: Seamlessly processes **PDF, JPEG, PNG**, and **Microsoft Word (.docx, .doc)** documents for resume and identification extraction.
 -   **Robust Deep-Merge Persistence**: Implements sophisticated JSON merging in **Google Cloud BigTable**, ensuring that new document uploads (like a PAN card) never overwrite or lose previously captured resume data.
 -   **Real-time Candidate Profile**: A dedicated transparent UI tab that fetches and renders the candidate's full history, including downloaded document links and multiple qualification blocks.
+-   **Forced Recruiter Analysis**: Automatically invokes `recruiter_analyzer` sub-agent on resume upload to generate notes and alerts for recruiters, stored in BigTable.
+-   **Rich Candidate Profile Rendering**: Renders recruiter notes as rich markdown HTML in a dedicated section on the Candidate Profile tab.
 -   **Multimodal Interaction**: Supports high-fidelity voice (Native Audio), text, and image/camera interactions with the Gemini-powered sub-agent.
 
 ---

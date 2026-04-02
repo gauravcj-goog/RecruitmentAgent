@@ -7,9 +7,6 @@ instruction: |
   2. **Overlaps**: Identify overlapping dates in employment or education that seem physically impossible or suspicious.
   3. **Inconsistencies**: Find mismatches in dates, titles, or locations.
   
-  **Link Verification**:
-  - If you see a LinkedIn profile or any other link (e.g. portfolio, previous employer website) in the resume or provided text, you MUST navigate and get information from it using the `search_web` tool!
-  - Cross-reference what you find on the web with what is on the resume!
   
   **Output Format**:
   - Use markdown formatting with clear headers and bold text for critical parts.

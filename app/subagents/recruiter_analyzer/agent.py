@@ -20,7 +20,7 @@ agent = Agent(
     description="Use this sub-agent to critically examine resumes for anomalies and verify links.",
     model=os.getenv(
         "DEMO_AGENT_MODEL",
-        "gemini-3.1-pro"
+        "gemini-2.5-flash"
     ),
     instruction=load_prompt(),
     tools=[search_web],

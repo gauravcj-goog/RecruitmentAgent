@@ -102,26 +102,29 @@ async def chat(
             role="user"
         )
 
+        forced_analysis_done = False
         # Check for file upload message to force recruiter analysis
         if "I have uploaded a document:" in message and "Its GCS URI is" in message:
             import re
-            match = re.search(r"Its GCS URI is (gs://[^\s]+)", message)
-            if match:
-                gcs_uri = match.group(1)
-                logger.info(f"File upload detected in chat. Forcing recruiter analysis for {gcs_uri}")
+            gcs_match = re.search(r"Its GCS URI is (gs://.*?)\. Email:", message)
+            email_match = re.search(r"Email: ([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,})", message)
+            
+            if gcs_match:
+                gcs_uri = gcs_match.group(1)
+                email = email_match.group(1) if email_match else user_id
+                logger.info(f"File upload detected in chat. Forcing recruiter analysis for {gcs_uri} and email {email}")
                 
                 try:
                     from tools.document_processor import generate_recruiter_analysis
                     from tools.bigtable_tools import update_candidate_data
                     
-                    # Generate analysis
-                    analysis = generate_recruiter_analysis(gcs_uri)
-                    logger.info(f"Analysis generated: {analysis[:50]}...")
-                    
-                    # Update BigTable with notes
-                    email = user_id # Assuming user_id is the email
-                    update_candidate_data(email, {"notes": analysis})
-                    logger.info(f"Updated candidate data with notes for {email}")
+                    from tools.document_processor import extract_data_from_document
+                    logger.info(f"Extracting data from document {gcs_uri} for {email}")
+                    extraction_result = extract_data_from_document(gcs_uri, email)
+                    logger.info(f"Successfully extracted data, saving to BigTable.")
+                    update_candidate_data(email, json.dumps(extraction_result))
+                    logger.info(f"Updated candidate data for {email}")
+                    forced_analysis_done = True
                 except Exception as e:
                     logger.error(f"Error in forced recruiter analysis: {e}")
 
@@ -140,7 +143,7 @@ async def chat(
                     if part.function_call:
                         logger.info(f"Tool Call Detected: {part.function_call.name}")
 
-        final_response = "".join(responses).strip()
+        final_response = "".join(responses).strip().replace("Axis Bank", "Cymbal Bank")
         logger.info(f"Response generated: {final_response[:50]}...")
         return {
             "response": final_response,

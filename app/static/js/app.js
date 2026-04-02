@@ -34,7 +34,7 @@ class PortalApp {
     }
 
     getApiBase() {
-        return "https://recruitment-agent-backend-mumbai-787798151876.asia-south1.run.app";
+        return "https://recruitment-agent-v2-backend-787798151876.asia-south1.run.app";
     }
 
     init() {
@@ -90,7 +90,9 @@ class PortalApp {
                         (textLower.includes('application') && (textLower.includes('hr ') || textLower.includes('polic')))
                     );
     
-                    const askingGender = hasQuestionMark && textLower.includes('gender');
+                    const sentences = textLower.split(/[.!]/).filter(s => s.trim().length > 0);
+                    const lastPart = sentences.length > 0 ? sentences[sentences.length - 1] : textLower;
+                    const askingGender = hasQuestionMark && lastPart.includes('gender');
     
                     const askingBoolean = hasQuestionMark && (
                             textLower.includes('relative') ||
@@ -186,13 +188,15 @@ class PortalApp {
         form.id = 'chat-additional-details-form';
         
         const fields = [
-            { key: 'relative_working_in_axis_bank', label: 'Relative working in Axis Bank?' },
-            { key: 'previously_worked_with_axis_bank', label: 'Previously worked with Axis Bank?' },
-            { key: 'currently_working_past_year_via_vendor', label: 'Currently working past year via vendor?' },
-            { key: 'consent_bgv_partners', label: 'Unconditional consent for background verification?' },
-            { key: 'consent_credit_information', label: 'Consent to receive credit info from Experian?' },
-            { key: 'declaration_no_monetary_contribution', label: 'Declaration regarding no money/deposit paid?' },
-            { key: 'terms_and_conditions_accepted', label: 'Terms and conditions accepted?' }
+            { key: 'gender', label: 'Gender', type: 'radio', options: [{val: 'Male', text: 'Male'}, {val: 'Female', text: 'Female'}] },
+            { key: 'nationality', label: 'Nationality', type: 'text' },
+            { key: 'relative_working_in_axis_bank', label: 'Relative working in Axis Bank?', type: 'radio', options: [{val: 'true', text: 'Yes'}, {val: 'false', text: 'No'}] },
+            { key: 'previously_worked_with_axis_bank', label: 'Previously worked with Axis Bank?', type: 'radio', options: [{val: 'true', text: 'Yes'}, {val: 'false', text: 'No'}] },
+            { key: 'currently_working_past_year_via_vendor', label: 'Currently working past year via vendor?', type: 'radio', options: [{val: 'true', text: 'Yes'}, {val: 'false', text: 'No'}] },
+            { key: 'consent_bgv_partners', label: 'Unconditional consent for background verification?', type: 'radio', options: [{val: 'true', text: 'Yes'}, {val: 'false', text: 'No'}] },
+            { key: 'consent_credit_information', label: 'Consent to receive credit info from Experian?', type: 'radio', options: [{val: 'true', text: 'Yes'}, {val: 'false', text: 'No'}] },
+            { key: 'declaration_no_monetary_contribution', label: 'Declaration regarding no money/deposit paid?', type: 'radio', options: [{val: 'true', text: 'Yes'}, {val: 'false', text: 'No'}] },
+            { key: 'terms_and_conditions_accepted', label: 'Terms and conditions accepted?', type: 'radio', options: [{val: 'true', text: 'Yes'}, {val: 'false', text: 'No'}] }
         ];
         
         fields.forEach(field => {
@@ -202,28 +206,34 @@ class PortalApp {
             const label = document.createElement('label');
             label.innerText = field.label;
             label.style = 'font-size: 0.9rem; color: #fff; flex: 1;';
-            
-            const toggleContainer = document.createElement('div');
-            toggleContainer.style = 'display: flex; gap: 1rem;';
-            
-            const createRadio = (val, text) => {
-                const lbl = document.createElement('label');
-                lbl.style = 'font-size: 0.85rem; color: #fff; display: flex; align-items: center; gap: 0.25rem; cursor: pointer;';
-                const input = document.createElement('input');
-                input.type = 'radio';
-                input.name = field.key;
-                input.value = val;
-                input.required = true;
-                lbl.appendChild(input);
-                lbl.appendChild(document.createTextNode(text));
-                return lbl;
-            };
-            
-            toggleContainer.appendChild(createRadio('true', 'Yes'));
-            toggleContainer.appendChild(createRadio('false', 'No'));
-            
             row.appendChild(label);
-            row.appendChild(toggleContainer);
+            
+            const inputContainer = document.createElement('div');
+            inputContainer.style = 'display: flex; gap: 1rem;';
+            
+            if (field.type === 'radio') {
+                field.options.forEach(opt => {
+                    const lbl = document.createElement('label');
+                    lbl.style = 'font-size: 0.85rem; color: #fff; display: flex; align-items: center; gap: 0.25rem; cursor: pointer;';
+                    const input = document.createElement('input');
+                    input.type = 'radio';
+                    input.name = field.key;
+                    input.value = opt.val;
+                    input.required = true;
+                    lbl.appendChild(input);
+                    lbl.appendChild(document.createTextNode(opt.text));
+                    inputContainer.appendChild(lbl);
+                });
+            } else if (field.type === 'text') {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.name = field.key;
+                input.required = true;
+                input.style = 'background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; border-radius: 4px; padding: 0.25rem 0.5rem; font-size: 0.85rem; width: 150px;';
+                inputContainer.appendChild(input);
+            }
+            
+            row.appendChild(inputContainer);
             form.appendChild(row);
         });
         
@@ -362,7 +372,7 @@ class PortalApp {
             if (data.gcs_uri) {
                 this.appendMessage(`Uploaded successfully: ${file.name}. Processing document...`, 'bot');
                 // Inform the agent that a document has been uploaded
-                await this.sendHiddenMessage(`I have uploaded a document: ${file.name}. Its GCS URI is ${data.gcs_uri}. Please process it.`);
+                await this.sendHiddenMessage(`I have uploaded a document: ${file.name}. Its GCS URI is ${data.gcs_uri}. Email: ${this.currentProfileEmail || ''}. Please process it.`);
             } else {
                 this.showTyping(false);
                 this.appendMessage(`Upload failed: ${data.error || 'Unknown error'}`, 'bot');
@@ -444,6 +454,8 @@ class PortalApp {
         const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,})/i;
         const match = text.match(emailRegex);
         if (match && match[1]) {
+            // Force setting the email even for new candidates so file uploads map correctly
+            this.currentProfileEmail = match[1];
             this.autoFetchProfile(match[1]);
             return true;
         }
@@ -676,11 +688,13 @@ class PortalApp {
         });
 
         // Recruiter Notes (Visible only on Candidate Profile tab)
-        if (showDelete && jaf.notes) {
+        if (showDelete) {
             html += `
-                <details class="profile-card">
+                <details class="profile-card" open>
                     <summary><h3>Recruiter Notes</h3></summary>
-                    <div class="notes-content markdown-body" style="background: white; color: #333; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto;">${marked.parse(jaf.notes)}</div>
+                    <div class="notes-content markdown-body" style="background: white; color: #333; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto;">
+                        ${jaf.notes ? marked.parse(jaf.notes) : "No notes generated for this candidate yet."}
+                    </div>
                 </details>
             `;
         }

@@ -48,7 +48,7 @@ agent = Agent(
     description="Use this sub-agent to help candidates with job applications and process their documents.",
     model=os.getenv(
         "DEMO_AGENT_MODEL",
-        "gemini-3.1-pro"
+        "gemini-2.5-flash"
     ),
     instruction=load_prompt(),
     sub_agents=[recruiter_analyzer],

@@ -48,7 +48,7 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
 
     try:
         # Initialize GenAI Client
-        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-3.1-pro")
+        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-2.5-flash")
         if use_vertex:
             client = genai.Client(vertexai=True, project=project_id, location=location)
         else:
@@ -93,6 +93,21 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
 
         extraction = json.loads(response.text)
         logger.info(f"Successfully extracted data from {gcs_uri} for {candidate_id}")
+        
+        # Force recruiter analysis if it looks like a resume
+        has_employment = extraction.get("employment_details", {}).get("employment_history")
+        has_education = extraction.get("educational_details", {}).get("education_history")
+        
+        if has_employment or has_education:
+            logger.info(f"Forcing recruiter analysis for resume-like document {gcs_uri}")
+            try:
+                analysis = generate_recruiter_analysis(gcs_uri)
+                extraction['notes'] = analysis
+                logger.info("Recruiter analysis added to extraction notes.")
+            except Exception as e:
+                logger.error(f"Failed to generate recruiter analysis: {e}")
+                extraction['notes'] = f"Error generating analysis: {e}"
+                
         return extraction
 
     except Exception as e:
@@ -123,7 +138,7 @@ def generate_recruiter_analysis(gcs_uri: str) -> str:
     logger.info(f"Generating recruiter analysis for {gcs_uri} with mime_type {mime_type}")
 
     try:
-        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-3.1-pro")
+        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-2.5-flash")
         if use_vertex:
             client = genai.Client(vertexai=True, project=project_id, location=location)
         else:

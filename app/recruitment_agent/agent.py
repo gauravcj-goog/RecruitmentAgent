@@ -31,7 +31,7 @@ agent = Agent(
     name="recruitment_agent",
     model=os.getenv(
         "DEMO_AGENT_MODEL",
-        "gemini-3.1-pro"
+        "gemini-2.5-flash"
     ),
     sub_agents=[job_application],
     tools=[search_hr_policies, get_candidate_profile], 

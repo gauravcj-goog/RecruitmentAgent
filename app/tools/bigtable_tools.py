@@ -106,16 +106,34 @@ def get_candidate_profile(candidate_id: str) -> str:
                     
         # Reorder keys in referenced sequence:
         # Personal, Employment, Education, Additional, Uploaded Documents
-        seq = ["personal_details", "employment_details", "educational_details", "additional_details", "uploaded_documents", "verification_status"]
+        seq = ["personal_details", "employment_details", "educational_details", "additional_details", "uploaded_documents", "verification_status", "notes"]
         sorted_jaf = {}
         for k in seq:
             if k in jaf:
                 sorted_jaf[k] = jaf[k]
         profile["jaf1_pre_offer_document"] = sorted_jaf
-        return json.dumps(profile)
+        
+        # Replace Axis Bank with Cymbal Bank on read
+        return json.dumps(profile).replace("Axis Bank", "Cymbal Bank")
     except Exception as e:
         logger.error(f"Error fetching profile: {e}")
         return "{}"
+
+def _extract_json(text: str) -> str:
+    """Extracts the first complete JSON object from a string using a stack-based approach."""
+    start = text.find('{')
+    if start == -1:
+        return ""
+    
+    count = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            count += 1
+        elif text[i] == '}':
+            count -= 1
+            if count == 0:
+                return text[start:i+1]
+    return ""
 
 def update_candidate_data(candidate_id: str, data_json: str) -> str:
     """
@@ -130,8 +148,21 @@ def update_candidate_data(candidate_id: str, data_json: str) -> str:
     if not project_id:
         return "Error: GOOGLE_CLOUD_PROJECT not set."
 
+    # Replace Axis Bank with Cymbal Bank on write
+    data_json = data_json.replace("Axis Bank", "Cymbal Bank")
+
     try:
-        data = json.loads(data_json)
+        extracted_json = _extract_json(data_json)
+        if not extracted_json:
+            logger.error("No JSON object found in input")
+            raise ValueError("No JSON object found in input")
+            
+        try:
+            data = json.loads(extracted_json)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse extracted JSON: {e}")
+            raise e
+            
         # Handle both root-wrapped and raw JAF data
         new_jaf = data.get("jaf1_pre_offer_document", data)
         

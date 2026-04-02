@@ -1,15 +1,17 @@
 # Cymbal Bank Recruitment Assistant (V2)
 
-A multimodal AI assistant designed for **Cymbal Bank, India**. This application leverages the **Gemini 2.5 Flash** model to provide real-time interactions for recruitment and HR queries, featuring structured data extraction from resumes and robust data persistence in BigTable.
+A multimodal AI assistant designed for **Cymbal Bank, India**. This application leverages the **Gemini 3.1 Pro Preview** model to provide real-time interactions for recruitment and HR queries, featuring structured data extraction from resumes and robust data persistence in BigTable.
 
 ## 🌟 Key Features
 
 -   **Intelligent Policy Search**: Real-time answers to employee and candidate queries (e.g., leave policies, insurance) using **Vertex AI Search** (RAG).
--   **Structured Data Extraction**: Automatically extracts personal, educational, and employment details from uploaded resumes.
+-   **Structured Data Extraction**: Automatically extracts personal, educational, and employment details from uploaded resumes, with improved handling of lists and incomplete data.
+-   **Asynchronous Recruiter Analysis**: Offloads heavy document analysis to background tasks, ensuring fast UI response times during uploads.
+-   **Date-Aware Analysis**: Recruiter analyzer is aware of the current date for accurate gap and timeline calculations.
+-   **Data Loss Prevention**: Prevents overwriting valid profile data with defaults when parsing partial documents.
 -   **Multi-Format Document Support**: Processes PDF and image (JPEG, PNG) documents.
 -   **Robust JSON Parsing**: Uses a custom stack-based extractor to handle nested JSON objects and ignore trailing text, ensuring reliable extraction even when models output extra text.
 -   **Deep-Merge Persistence in BigTable**: Merges new document uploads (like PAN cards) without losing previously captured resume data.
--   **Automatic Recruiter Analysis**: Triggers a recruiter analysis automatically on resume upload to generate critical flags and recommendations.
 -   **Live Candidate Profile UI**: Dedicated tab showing the full candidate profile, including auto-expanding Recruiter Notes.
 -   **Enforced Rebranding**: Automatically replaces any backend or data mentions of "Axis Bank" with "Cymbal Bank" to maintain consistent branding.
 
@@ -17,13 +19,14 @@ A multimodal AI assistant designed for **Cymbal Bank, India**. This application 
 
 | Layer | Technology |
 | :--- | :--- |
-| **Generative AI** | Gemini 2.5 Flash |
+| **Generative AI** | Gemini 3.1 Pro Preview |
 | **Knowledge Engine** | Vertex AI Search (RAG) |
 | **Database** | Google Cloud BigTable |
 | **Storage** | Google Cloud Storage |
 | **Backend** | Python 3.11, FastAPI |
 | **Frontend** | Vanilla HTML5 / CSS (Modern Glassmorphism) / Vanilla JS |
 | **Deployment** | Google Cloud Run (`asia-south1`) |
+
 
 ## 🌐 Hosted Solution Endpoints
 

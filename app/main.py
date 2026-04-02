@@ -9,7 +9,7 @@ from typing import List, Optional
 
 import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Body
+from fastapi import FastAPI, UploadFile, File, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from google.cloud import storage
@@ -71,8 +71,30 @@ async def root():
 # Chat Endpoint (HTTP Replace WebSocket)
 # ========================================
 
+def async_recruiter_analysis(gcs_uri: str, email: str):
+    """Background task to generate recruiter analysis and update BigTable."""
+    logger.info(f"Starting async recruiter analysis for {gcs_uri} and email {email}")
+    try:
+        from tools.document_processor import generate_recruiter_analysis
+        from tools.bigtable_tools import get_candidate_profile, update_candidate_data
+        
+        # Fetch existing notes
+        profile_json = get_candidate_profile(email)
+        profile = json.loads(profile_json).get("jaf1_pre_offer_document", {})
+        existing_notes = profile.get("notes")
+        
+        # Generate analysis
+        analysis = generate_recruiter_analysis(gcs_uri, existing_notes)
+        
+        # Update BigTable with JUST the notes
+        update_candidate_data(email, json.dumps({"notes": analysis}))
+        logger.info(f"Async recruiter analysis completed and saved for {email}")
+    except Exception as e:
+        logger.error(f"Error in async recruiter analysis: {e}")
+
 @app.post("/api/chat")
 async def chat(
+    background_tasks: BackgroundTasks,
     user_id: str = Body(...),
     session_id: str = Body(...),
     message: str = Body(...)
@@ -120,13 +142,26 @@ async def chat(
                     
                     from tools.document_processor import extract_data_from_document
                     logger.info(f"Extracting data from document {gcs_uri} for {email}")
-                    extraction_result = extract_data_from_document(gcs_uri, email)
+                    extraction_result = extract_data_from_document(gcs_uri, email, force_analysis=False)
                     logger.info(f"Successfully extracted data, saving to BigTable.")
                     update_candidate_data(email, json.dumps(extraction_result))
                     logger.info(f"Updated candidate data for {email}")
+                    
+                    # Add background task for recruiter analysis
+                    background_tasks.add_task(async_recruiter_analysis, gcs_uri, email)
+                    logger.info(f"Added async recruiter analysis task for {email}")
                     forced_analysis_done = True
                 except Exception as e:
                     logger.error(f"Error in forced recruiter analysis: {e}")
+
+        # Modify message to prevent double processing if forced analysis was done
+        if forced_analysis_done:
+            logger.info("Forced analysis done. Modifying message to prevent agent from re-processing.")
+            message = message + "\n\n(Note: I have already automatically processed this document and generated recruiter notes. Do not call extract_data_from_document for this file.)"
+            new_message = types.Content(
+                parts=[types.Part(text=message)],
+                role="user"
+            )
 
         # Run the agent
         logger.info("Starting runner.run_async...")

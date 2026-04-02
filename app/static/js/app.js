@@ -34,7 +34,7 @@ class PortalApp {
     }
 
     getApiBase() {
-        return "https://recruitment-agent-v2-backend-787798151876.asia-south1.run.app";
+        return "https://recruitment-agent-backend-787798151876.asia-south1.run.app";
     }
 
     init() {
@@ -692,7 +692,7 @@ class PortalApp {
             html += `
                 <details class="profile-card" open>
                     <summary><h3>Recruiter Notes</h3></summary>
-                    <div class="notes-content markdown-body" style="background: white; color: #333; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; max-height: 200px; overflow-y: auto;">
+                    <div class="notes-content markdown-body" style="background: white; color: #333; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; min-height: 100px; max-height: 500px; overflow-y: auto; resize: vertical;">
                         ${jaf.notes ? marked.parse(jaf.notes) : "No notes generated for this candidate yet."}
                     </div>
                 </details>

@@ -5,10 +5,11 @@ import mimetypes
 from google.cloud import storage
 from google import genai
 from google.genai import types
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
+def extract_data_from_document(gcs_uri: str, candidate_id: str, force_analysis: bool = False) -> dict:
     """
     Reads a document (PDF or Image) from GCS and extracts fields for the Job Application Form (JAF).
     
@@ -48,7 +49,7 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
 
     try:
         # Initialize GenAI Client
-        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-2.5-flash")
+        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-3.1-pro-preview")
         if use_vertex:
             client = genai.Client(vertexai=True, project=project_id, location=location)
         else:
@@ -67,15 +68,17 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
         {schema_text}
         
         RULES:
-        1. Extract data into the nested JSON structure matching the schema.
-        2. If a field is not found, do NOT invent data; omit it.
-        3. For boolean fields, infer based on the document content if possible.
-        4. Return ONLY valid JSON.
-        5. **SEQUENTIAL EDUCATION EXTRACTION**: Carefully identify EVERY educational qualification mentioned (e.g., 10th, 12th, Bachelor's, Master's, Certifications).
-        6. **STRUCTURE**: Store multiple qualifications in the `educational_details.education_history` list sequentially.
-        7. **CRITICAL**: If the document is a PAN Card or contains a PAN Number, ENSURE the 'pan_number' field in 'personal_details' is populated.
-        8. **COMPREHENSIVE EXTRACTION**: Extract data for ALL sections defined in the schema: `personal_details`, `employment_details`, `educational_details`, and `additional_details`. Treat the document as the primary source of truth.
+        1. **STRUCTURE**: Extract data into the nested JSON structure matching the schema.
+        2. **LISTS ARE CRITICAL**: For `employment_details.employment_history` and `educational_details.education_history`, you MUST identify and extract *multiple* entries if present. Do not just take the most recent one.
+        3. **SEQUENTIAL EXTRACTION**: For employment and education history, extract items in chronological order (or as they appear). Ensure each item has `company_name`/`institute` and `designation`/`course`.
+        4. **INCOMPLETE DATA**: If a field (like start_date or end_date) is missing but the event (job or degree) is mentioned, STILL extract the item and fill the available fields. Use "N/A" or leave empty only if completely unknown.
+        5. **NO HALLUCINATION**: If a field is not found in the document, do NOT invent data; omit it.
+        6. **BOOLEAN OMISSION**: For fields in `additional_details` (usually booleans), if the document does not mention the information, DO NOT include the field in the JSON output. Do not default to false. Omission is required to prevent overwriting previously saved data.
+        7. Return ONLY valid JSON.
+        8. **CRITICAL**: If the document is a PAN Card or contains a PAN Number, ENSURE the 'pan_number' field in 'personal_details' is populated.
+        9. **COMPREHENSIVE EXTRACTION**: Extract data for ALL sections defined in the schema: `personal_details`, `employment_details`, `educational_details`, and `additional_details`. Treat the document as the primary source of truth.
         """
+
 
         # Prepare the file part for Gemini
         parts = [
@@ -94,19 +97,37 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
         extraction = json.loads(response.text)
         logger.info(f"Successfully extracted data from {gcs_uri} for {candidate_id}")
         
-        # Force recruiter analysis if it looks like a resume
+        # Force recruiter analysis if requested or if it looks like a resume
         has_employment = extraction.get("employment_details", {}).get("employment_history")
         has_education = extraction.get("educational_details", {}).get("education_history")
         
-        if has_employment or has_education:
+        if force_analysis or has_employment or has_education:
             logger.info(f"Forcing recruiter analysis for resume-like document {gcs_uri}")
             try:
-                analysis = generate_recruiter_analysis(gcs_uri)
-                extraction['notes'] = analysis
+                # Fetch existing notes from BigTable
+                from tools.bigtable_tools import get_candidate_profile
+                existing_notes = None
+                try:
+                    profile_json = get_candidate_profile(candidate_id)
+                    profile = json.loads(profile_json).get("jaf1_pre_offer_document", {})
+                    existing_notes = profile.get("notes")
+                    if existing_notes:
+                        logger.info(f"Found existing notes for {candidate_id}, passing to analyzer.")
+                except Exception as e:
+                    logger.warning(f"Could not fetch existing profile/notes: {e}")
+
+                analysis = generate_recruiter_analysis(gcs_uri, existing_notes)
+                if "jaf1_pre_offer_document" in extraction:
+                    extraction["jaf1_pre_offer_document"]["notes"] = analysis
+                else:
+                    extraction["notes"] = analysis
                 logger.info("Recruiter analysis added to extraction notes.")
             except Exception as e:
                 logger.error(f"Failed to generate recruiter analysis: {e}")
-                extraction['notes'] = f"Error generating analysis: {e}"
+                if "jaf1_pre_offer_document" in extraction:
+                    extraction["jaf1_pre_offer_document"]["notes"] = f"Error generating analysis: {e}"
+                else:
+                    extraction["notes"] = f"Error generating analysis: {e}"
                 
         return extraction
 
@@ -114,7 +135,7 @@ def extract_data_from_document(gcs_uri: str, candidate_id: str) -> dict:
         logger.error(f"Error extracting data from document: {e}")
         return {"error": str(e)}
 
-def generate_recruiter_analysis(gcs_uri: str) -> str:
+def generate_recruiter_analysis(gcs_uri: str, existing_notes: str = None) -> str:
     """
     Generates a recruiter analysis for the document at the given GCS URI.
     """
@@ -138,7 +159,7 @@ def generate_recruiter_analysis(gcs_uri: str) -> str:
     logger.info(f"Generating recruiter analysis for {gcs_uri} with mime_type {mime_type}")
 
     try:
-        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-2.5-flash")
+        model_id = os.getenv("DEMO_AGENT_MODEL", "gemini-3.1-pro-preview")
         if use_vertex:
             client = genai.Client(vertexai=True, project=project_id, location=location)
         else:
@@ -152,8 +173,14 @@ def generate_recruiter_analysis(gcs_uri: str) -> str:
 
         parts = [
             types.Part.from_uri(file_uri=gcs_uri, mime_type=mime_type),
-            types.Part.from_text(text=prompt)
         ]
+        
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        full_prompt = f"Today's Date: {current_date}\n\n{prompt}"
+        if existing_notes:
+            full_prompt += f"\n\nExisting Recruiter Notes for reference:\n{existing_notes}\n\nPlease update the analysis based on the new document provided above. Preserve the existing analysis if the new document doesn't add any new critical information or anomalies."
+            
+        parts.append(types.Part.from_text(text=full_prompt))
 
         response = client.models.generate_content(
             model=model_id,

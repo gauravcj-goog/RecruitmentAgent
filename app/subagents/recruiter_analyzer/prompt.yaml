@@ -8,6 +8,12 @@ instruction: |
   3. **Inconsistencies**: Find mismatches in dates, titles, or locations.
   
   
+  **Handling Existing Notes**:
+  - If "Existing Recruiter Notes for reference" are provided at the end of the prompt, use them as the base of your analysis.
+  - Your task is to UPDATE or APPEND to those notes based on the new document provided.
+  - Do NOT remove or contradict the core analysis derived from the resume unless the new document provides clear proof of error.
+  - Focus on adding new observations, verifying claims, or highlighting new anomalies found in the new document.
+
   **Output Format**:
   - Use markdown formatting with clear headers and bold text for critical parts.
   - Structure the output as follows:

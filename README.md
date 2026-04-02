@@ -59,12 +59,19 @@ UPLOADS_BUCKET=learn-361304-recruitment-uploads
 BIGTABLE_INSTANCE=recruitment-instance
 ```
 
-### 2. Cloud Run Deployment
+## 🚀 How to Deploy
 
-**Deploy the Backend:**
+### Cloud Run Deployment
+
+To deploy the backend to Cloud Run, use the following command from the project root directory:
+
 ```bash
-gcloud run deploy recruitment-agent-v2-backend \
+gcloud run deploy recruitment-agent-backend \
   --source . \
   --region asia-south1 \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,DEMO_AGENT_MODEL=gemini-3.1-pro-preview,GOOGLE_CLOUD_PROJECT=learn-361304,GOOGLE_CLOUD_LOCATION=global,DATA_STORE_ID=recruitment-policies-ds,SEARCH_LOCATION=global,ALLOWED_ORIGINS="*"
 ```
+
+*Note: Ensure you have the Google Cloud SDK installed and authenticated, and that your active project is set correctly or specified in the environment variables.*
+

@@ -32,7 +32,7 @@ A multimodal AI assistant designed for **Cymbal Bank, India**. This application 
 
 -   **Candidate Portal (Frontend)**: [https://recruitment-agent-v2-frontend-787798151876.asia-south1.run.app](https://recruitment-agent-v2-frontend-787798151876.asia-south1.run.app)
 -   **API Backend**: [https://recruitment-agent-v2-backend-787798151876.asia-south1.run.app](https://recruitment-agent-v2-backend-787798151876.asia-south1.run.app)
--   **GCS Document Storage**: `gs://learn-361304-recruitment-uploads`
+-   **GCS Document Storage**: `gs://<YOUR_UPLOADS_BUCKET>`
 
 ## 🚀 Recent Stability & Quality Improvements
 
@@ -50,12 +50,12 @@ A multimodal AI assistant designed for **Cymbal Bank, India**. This application 
 Create an `app/.env` file with the following critical variables:
 
 ```bash
-GOOGLE_CLOUD_PROJECT=learn-361304
+GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>
 GOOGLE_CLOUD_LOCATION=us-central1
 DEMO_AGENT_MODEL=gemini-2.5-flash
 DATA_STORE_ID=recruitment-policies-ds
 SEARCH_LOCATION=global
-UPLOADS_BUCKET=learn-361304-recruitment-uploads
+UPLOADS_BUCKET=<YOUR_UPLOADS_BUCKET>
 BIGTABLE_INSTANCE=recruitment-instance
 ```
 
@@ -70,7 +70,7 @@ gcloud run deploy recruitment-agent-backend \
   --source . \
   --region asia-south1 \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,DEMO_AGENT_MODEL=gemini-3.1-pro-preview,GOOGLE_CLOUD_PROJECT=learn-361304,GOOGLE_CLOUD_LOCATION=global,DATA_STORE_ID=recruitment-policies-ds,SEARCH_LOCATION=global,ALLOWED_ORIGINS="*"
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,DEMO_AGENT_MODEL=gemini-3.1-pro-preview,GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID>,GOOGLE_CLOUD_LOCATION=global,DATA_STORE_ID=<YOUR_DATA_STORE_ID>,SEARCH_LOCATION=global,ALLOWED_ORIGINS="*"
 ```
 
 *Note: Ensure you have the Google Cloud SDK installed and authenticated, and that your active project is set correctly or specified in the environment variables.*
